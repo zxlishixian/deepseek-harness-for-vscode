@@ -23,6 +23,7 @@ import { isPermissionPresetId, type PermissionPresetId } from '../domain/permiss
 import type { PromptAttachment } from '../domain/prompt-context.js'
 import { agentPresetTransition, type PromptConfiguration } from '../domain/prompt-configuration.js'
 import {
+  deriveSessionStatus,
   projectConversation,
   projectionCommands,
   projectionGoal,
@@ -34,6 +35,7 @@ import {
   type CommandEntry,
   type HarnessWorkbenchState,
   type PendingApprovalView,
+  type PendingInteractionStatus,
   type PendingQuestionView,
   type SubagentView,
   type WorkbenchLabels,
@@ -42,12 +44,14 @@ import type { HarnessHostRuntime } from '../runtime/web-runtime.js'
 import type { CredentialStore } from '../security/credential-store.js'
 import { NodeGatewayClient } from './node-gateway-client.js'
 
-interface PendingApprovalRecord extends PendingApprovalView {
+/** Transport-only fields for a pending approval, kept out of the DTO. */
+interface ApprovalTransport {
   readonly rpcId: RpcId
   readonly approvalId: string
 }
 
-interface PendingQuestionRecord extends PendingQuestionView {
+/** Transport-only fields for a pending question, kept out of the DTO. */
+interface QuestionTransport {
   readonly rpcId: RpcId
 }
 
@@ -69,14 +73,15 @@ export class HarnessGatewayService implements vscode.Disposable {
   private presets: readonly AgentPresetEntry[] = []
   private skills: readonly SkillEntry[] = []
   private jobs: readonly JobView[] = []
-  private approvals = new Map<string, PendingApprovalRecord>()
-  private questions = new Map<string, PendingQuestionRecord>()
-  private subagentCount = 0
+  private approvals = new Map<string, PendingApprovalView>()
+  private approvalTransport = new Map<string, ApprovalTransport>()
+  private questions = new Map<string, PendingQuestionView>()
+  private questionTransport = new Map<string, QuestionTransport>()
   private subagents: SubagentListEntry[] = []
   private subagentAddress: SubagentAddress | undefined
   private projections: Record<string, unknown> = {}
   private readonly labels = localizedWorkbenchLabels()
-  private commands: readonly CommandEntry[] = projectionCommands(undefined, this.labels)
+  private commands: readonly CommandEntry[] = projectionCommands(undefined)
   private phase: HarnessWorkbenchState['phase'] = 'idle'
   private error: string | undefined
   private publishScheduled = false
@@ -153,12 +158,13 @@ export class HarnessGatewayService implements vscode.Disposable {
     const hasApiKey = apiKey !== undefined && apiKey.trim() !== ''
     const summaries = this.orderedSummaries().map((summary) => sessionListItem(summary, this.labels))
     const activeSummary = this.activeSessionId === undefined ? undefined : this.summaries.get(this.activeSessionId)
-    const projected = projectConversation(this.entries, this.labels)
+    const projected = projectConversation(this.entries)
     const permissions = projectionPermissions(this.projections.permissions)
     const plan = projectionPlan(this.projections.plan)
     const goal = projectionGoal(this.projections.goal)
     const tokenUsage = projectionTokenUsage(this.projections.tokenUsage)
     const contextPressure = projectionContextPressure(this.projections.contextPressure)
+    const pendingInteraction = this.derivePendingInteraction()
     const active = activeSummary === undefined ? undefined : {
       id: String(activeSummary.sessionId),
       title: sessionListItem(activeSummary, this.labels).title,
@@ -166,21 +172,21 @@ export class HarnessGatewayService implements vscode.Disposable {
       blank: activeSummary.blank,
       ...(activeSummary.agentPreset === undefined ? {} : { agentPreset: activeSummary.agentPreset }),
       hasMore: this.hasMore,
-      ...(this.models === undefined ? {} : { model: this.models.current }),
-      models: this.models?.groups.flatMap((group) => group.models.map((model) => ({
-        provider: group.id,
-        id: model.id,
-        name: model.name,
-        ...(model.description === undefined ? {} : { description: model.description }),
-        reasoning: model.reasoning?.efforts ?? [],
-      }))) ?? [],
-      messages: projected.messages,
+      status: deriveSessionStatus({
+        ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
+        running: activeSummary.running,
+        runningSubagentCount: runningSubagents(this.subagents),
+      }),
+      ...(this.models === undefined ? {} : { models: this.models }),
+      nodes: projected.nodes,
+      partial: projected.partial,
+      runningCalls: projected.runningCalls,
+      turnTails: projected.turnTails,
       todos: projected.todos,
       skills: this.skills,
       jobs: this.jobs,
-      approvals: [...this.approvals.values()].map(stripApprovalTransport),
-      questions: [...this.questions.values()].map(stripQuestionTransport),
-      subagentCount: this.subagentCount,
+      approvals: [...this.approvals.values()],
+      questions: [...this.questions.values()],
       subagents: this.subagents.map(subagentView),
       ...(this.subagentAddress === undefined ? {} : {
         parentSessionId: String(this.subagentAddress.parentSessionId),
@@ -198,6 +204,9 @@ export class HarnessGatewayService implements vscode.Disposable {
       ...(this.error === undefined ? {} : { error: this.error }),
       hasApiKey,
       sessions: summaries,
+      // Archive is a client-side concern owned by the view provider; the
+      // gateway never hides sessions on its own.
+      archivedSessions: [],
       ...(active === undefined ? {} : { active }),
       presets: this.presets,
     }
@@ -220,8 +229,8 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   /**
    * Commits composer choices immediately before the next prompt. Harness locks
-   * an Agent Preset after a conversation starts, so changing DSH mode creates a
-   * fresh session while model/reasoning changes remain session-local.
+   * an Agent Preset after a conversation starts, so changing the Agent Preset
+   * creates a fresh session while model/reasoning changes remain session-local.
    */
   async applyPromptConfiguration(selection: PromptConfiguration): Promise<void> {
     if (this.subagentAddress !== undefined) {
@@ -264,11 +273,12 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.skills = []
     this.jobs = []
     this.approvals.clear()
+    this.approvalTransport.clear()
     this.questions.clear()
-    this.subagentCount = 0
+    this.questionTransport.clear()
     this.subagents = []
     this.projections = {}
-    this.commands = projectionCommands(undefined, this.labels)
+    this.commands = projectionCommands(undefined)
     this.fireChange()
 
     const client = this.requireClient()
@@ -310,7 +320,6 @@ export class HarnessGatewayService implements vscode.Disposable {
     else this.logOptionalCatalogFailure('Skills', skills.reason)
     if (subagents.status === 'fulfilled') {
       this.subagents = valueOf(subagents.value).entries
-      this.subagentCount = this.subagents.length
     } else this.logOptionalCatalogFailure(vscode.l10n.t('sub-agent'), subagents.reason)
     if (commands.status === 'fulfilled') this.commands = commands.value
     else this.logOptionalCatalogFailure(vscode.l10n.t('slash command'), commands.reason)
@@ -415,10 +424,11 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.skills = []
     this.jobs = []
     this.subagents = list.entries
-    this.subagentCount = list.entries.length
     this.projections = recordValue(history.projections?.values)
     this.approvals.clear()
+    this.approvalTransport.clear()
     this.questions.clear()
+    this.questionTransport.clear()
     this.fireChange()
   }
 
@@ -484,7 +494,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       this.commands = commands
     } catch (cause) {
       if (!this.isCurrentSelection(sessionId, generation)) return
-      this.commands = projectionCommands(undefined, this.labels)
+      this.commands = projectionCommands(undefined)
       this.output.appendLine(vscode.l10n.t('[gateway] Failed to refresh the command list: {0}', errorMessage(cause)))
     }
     this.fireChange()
@@ -512,7 +522,10 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   async rename(title: string): Promise<void> {
-    const sessionId = this.requireActiveSession()
+    await this.renameSession(this.requireActiveSession(), title)
+  }
+
+  async renameSession(sessionId: string, title: string): Promise<void> {
     const renamed = valueOf(await this.requireClient().sessions.rename({
       sessionId: sessionId as SessionId,
       title,
@@ -531,12 +544,20 @@ export class HarnessGatewayService implements vscode.Disposable {
     await this.selectSession(String(forked.sessionId))
   }
 
+  async forkSession(sessionId: string): Promise<void> {
+    const forked = valueOf(await this.requireClient().sessions.fork({
+      sessionId: sessionId as SessionId,
+    }))
+    await this.refreshSessionList()
+    await this.selectSession(String(forked.sessionId))
+  }
+
   async answerApproval(key: string, outcome: 'allowed-once' | 'rejected'): Promise<void> {
-    const pending = this.approvals.get(key)
-    if (pending === undefined) throw new Error(vscode.l10n.t('This approval request is no longer active.'))
-    await this.respond(pending.rpcId, {
+    const transport = this.approvalTransport.get(key)
+    if (transport === undefined) throw new Error(vscode.l10n.t('This approval request is no longer active.'))
+    await this.respond(transport.rpcId, {
       sessionId: this.requireActiveSession(),
-      approvalId: pending.approvalId,
+      approvalId: transport.approvalId,
       outcome,
     })
   }
@@ -545,9 +566,9 @@ export class HarnessGatewayService implements vscode.Disposable {
     key: string,
     answers: readonly { readonly id: string; readonly selected: readonly string[]; readonly custom?: string }[],
   ): Promise<void> {
-    const pending = this.questions.get(key)
-    if (pending === undefined) throw new Error(vscode.l10n.t('This question is no longer active.'))
-    await this.respond(pending.rpcId, {
+    const transport = this.questionTransport.get(key)
+    if (transport === undefined) throw new Error(vscode.l10n.t('This question is no longer active.'))
+    await this.respond(transport.rpcId, {
       sessionId: this.requireActiveSession(),
       answer: {
         answers: answers.map((answer) => ({
@@ -615,20 +636,21 @@ export class HarnessGatewayService implements vscode.Disposable {
       const key = `approval:${String(rpcId)}`
       this.approvals.set(key, {
         key,
-        rpcId,
-        approvalId: String(frame.approvalId),
         toolName: frame.toolName,
         ...(frame.reason === undefined ? {} : { reason: frame.reason }),
       })
+      this.approvalTransport.set(key, { rpcId, approvalId: String(frame.approvalId) })
     } else if (frame.type === 'approval/resolved') {
-      for (const [key, pending] of this.approvals) {
-        if (pending.approvalId === String(frame.approvalId)) this.approvals.delete(key)
+      for (const [key, transport] of this.approvalTransport) {
+        if (transport.approvalId === String(frame.approvalId)) {
+          this.approvalTransport.delete(key)
+          this.approvals.delete(key)
+        }
       }
     } else if (frame.type === 'question/requested' && String(frame.sessionId) === this.activeSessionId) {
       const key = `question:${String(rpcId)}`
       this.questions.set(key, {
         key,
-        rpcId,
         questions: frame.questions.map((question) => ({
           id: question.id,
           question: question.question,
@@ -638,8 +660,11 @@ export class HarnessGatewayService implements vscode.Disposable {
           multiSelect: question.multiSelect ?? false,
         })),
       })
+      this.questionTransport.set(key, { rpcId })
     } else if (frame.type === 'question/resolved') {
-      this.questions.delete(`question:${String(frame.questionRpcId)}`)
+      const key = `question:${String(frame.questionRpcId)}`
+      this.questions.delete(key)
+      this.questionTransport.delete(key)
     } else if (frame.type === 'session/jobs' && String(frame.sessionId) === this.activeSessionId) {
       this.jobs = frame.jobs
     } else if (frame.type === 'session/projection') {
@@ -717,10 +742,18 @@ export class HarnessGatewayService implements vscode.Disposable {
     return this.activeSessionId === sessionId && this.selectionGeneration === generation
   }
 
+  /** The pending interaction that outranks live activity when deriving status. */
+  private derivePendingInteraction(): PendingInteractionStatus | undefined {
+    if (this.approvals.size > 0) return 'approval'
+    if (this.questions.size > 0) return 'question'
+    const plan = projectionPlan(this.projections.plan)
+    return plan?.pending === true ? 'plan-review' : undefined
+  }
+
   private async commandsFor(sessionId: string): Promise<readonly CommandEntry[]> {
     const client = this.requireClient()
-    if (!(client instanceof NodeGatewayClient)) return projectionCommands(undefined, this.labels)
-    return projectionCommands(await client.listCommands(sessionId), this.labels)
+    if (!(client instanceof NodeGatewayClient)) return projectionCommands(undefined)
+    return projectionCommands(await client.listCommands(sessionId))
   }
 
   private logOptionalCatalogFailure(name: string, cause: unknown): void {
@@ -743,7 +776,7 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   private isRegisteredHostCommand(line: string): boolean {
     const name = /^\/([^\s/]+)/u.exec(line)?.[1]
-    return name !== undefined && this.commands.some((command) => command.kind === 'host' && command.name === name)
+    return name !== undefined && this.commands.some((command) => command.name === name)
   }
 
   private async executeHostCommand(line: string): Promise<void> {
@@ -848,18 +881,6 @@ function valueOf<T>(response: RpcResponse<T>): T {
   return response.result.value
 }
 
-function stripApprovalTransport(value: PendingApprovalRecord): PendingApprovalView {
-  return {
-    key: value.key,
-    toolName: value.toolName,
-    ...(value.reason === undefined ? {} : { reason: value.reason }),
-  }
-}
-
-function stripQuestionTransport(value: PendingQuestionRecord): PendingQuestionView {
-  return { key: value.key, questions: value.questions }
-}
-
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause)
 }
@@ -888,21 +909,14 @@ function subagentView(entry: SubagentListEntry): SubagentView {
   }
 }
 
+/** Counts child agents currently running, feeding the active-session status dot. */
+function runningSubagents(entries: readonly SubagentListEntry[]): number {
+  return entries.filter((entry) => entry.kind === 'child' && entry.activity === 'running').length
+}
+
 function localizedWorkbenchLabels(): WorkbenchLabels {
   return {
-    commandModel: vscode.l10n.t('Switch the current session model (Flash / Pro)'),
-    commandReasoning: vscode.l10n.t('Switch reasoning effort (off / high / max)'),
-    commandPreset: vscode.l10n.t('Switch Agent Preset (standard / code / minimal / cordis)'),
     newConversation: vscode.l10n.t('New conversation'),
-    toolResult: vscode.l10n.t('Tool result'),
-    slashCommand: vscode.l10n.t('Slash command'),
-    imageAttachment: vscode.l10n.t('[Image attachment]'),
-    completed: vscode.l10n.t('Completed'),
     session: vscode.l10n.t('Session'),
-    context: vscode.l10n.t('Context'),
-    generationStopped: vscode.l10n.t('Generation stopped'),
-    outputLimitReached: vscode.l10n.t('Output limit reached'),
-    taskBlocked: vscode.l10n.t('Task blocked'),
-    turnFailed: vscode.l10n.t('Turn failed'),
   }
 }

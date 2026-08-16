@@ -71,7 +71,7 @@ export class BundledRuntimeResolver {
     }
   }
 
-  /** Provides the `pnpm` executable name expected by the official DSH CLI. */
+  /** Provides the `pnpm` executable name expected by the official dsh CLI. */
   private async prepareTooling(): Promise<string> {
     const directory = path.join(this.context.globalStorageUri.fsPath, 'runtime-bin')
     await mkdir(directory, { recursive: true })
@@ -83,7 +83,7 @@ export class BundledRuntimeResolver {
   }
 }
 
-/** Cross-platform shim consumed by DSH's official `spawnSync("pnpm")`. */
+/** Cross-platform shim consumed by dsh's official `spawnSync("pnpm")`. */
 export function pnpmWrapper(platform: NodeJS.Platform): {
   readonly filename: string
   readonly content: string

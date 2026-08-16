@@ -159,11 +159,6 @@
           ],
           "default": "workspace-write",
           "description": "%config.permission%"
-        },
-        "deepseekHarness.autoAttachSelection": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "%config.autoAttachSelection%"
         }
       }
     }

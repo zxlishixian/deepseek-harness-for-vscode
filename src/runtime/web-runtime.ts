@@ -6,7 +6,7 @@ import * as vscode from 'vscode'
 import type { ConfigurationService, HarnessConfiguration } from '../config/configuration.js'
 import type { CredentialStore } from '../security/credential-store.js'
 import type { BundledRuntimeResolver } from './bundled-runtime.js'
-import { renderOverlay } from './runtime-overlay.js'
+import { renderConfigPatch } from './runtime-patch.js'
 
 const START_TIMEOUT_MS = 90_000
 const STOP_TIMEOUT_MS = 5_000
@@ -91,11 +91,11 @@ export class HarnessHostRuntime implements vscode.Disposable {
   ): Promise<string> {
     const launch = await this.resolver.resolve()
     const home = path.join(this.context.globalStorageUri.fsPath, 'harness-home')
-    const overlay = path.join(home, 'vscode.patch.yml')
+    const patch = path.join(home, 'vscode.patch.yml')
     await mkdir(home, { recursive: true })
-    await writeFile(overlay, renderOverlay(configuration), 'utf8')
+    await writeFile(patch, renderConfigPatch(configuration), 'utf8')
 
-    const args = [...launch.args, 'web', '--patch', overlay, '--host', '127.0.0.1', '--port', '0']
+    const args = [...launch.args, 'web', '--patch', patch, '--host', '127.0.0.1', '--port', '0']
     const env: NodeJS.ProcessEnv = {
       ...launch.environment,
       DSH_HOME: home,

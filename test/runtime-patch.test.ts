@@ -1,45 +1,43 @@
 import { describe, expect, it } from 'vitest'
-import { renderOverlay } from '../src/runtime/runtime-overlay.js'
+import { renderConfigPatch } from '../src/runtime/runtime-patch.js'
 
-describe('Harness Web profile overlay', () => {
+describe('Harness Web profile patch', () => {
   it('projects model, reasoning and agent preset defaults', () => {
-    const overlay = renderOverlay({
+    const patch = renderConfigPatch({
       model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
       agentPreset: 'code',
       provider: 'deepseek-official',
       permissionMode: 'workspace-write',
       baseUrl: undefined,
-      autoAttachSelection: true,
     })
-    expect(overlay).toContain('reasoningEffort: max')
-    expect(overlay).toContain('model: deepseek-v4-pro')
-    expect(overlay).toContain('default: code')
-    expect(overlay).toContain('defaultPreset: workspace-write')
-    expect(overlay).toContain(`presets:
+    expect(patch).toContain('reasoningEffort: max')
+    expect(patch).toContain('model: deepseek-v4-pro')
+    expect(patch).toContain('default: code')
+    expect(patch).toContain('defaultPreset: workspace-write')
+    expect(patch).toContain(`presets:
       read-only:
         sandbox: read-only
         approval: ask`)
-    expect(overlay).toContain(`workspace-write:
+    expect(patch).toContain(`workspace-write:
         sandbox: workspace-write
         approval: ask`)
-    expect(overlay).toContain(`danger-full-access:
+    expect(patch).toContain(`danger-full-access:
         sandbox: danger-full-access
         approval: never`)
   })
 
   it('disables thinking and safely quotes custom provider ids', () => {
-    const overlay = renderOverlay({
+    const patch = renderConfigPatch({
       model: 'deepseek-v4-flash',
       reasoningEffort: 'off',
       agentPreset: 'standard',
       provider: 'custom: route',
       permissionMode: 'read-only',
       baseUrl: 'https://example.test',
-      autoAttachSelection: false,
     })
-    expect(overlay).toContain('thinking: disabled')
-    expect(overlay).toContain('provider: "custom: route"')
-    expect(overlay).toContain('defaultPreset: read-only')
+    expect(patch).toContain('thinking: disabled')
+    expect(patch).toContain('provider: "custom: route"')
+    expect(patch).toContain('defaultPreset: read-only')
   })
 })

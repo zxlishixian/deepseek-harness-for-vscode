@@ -1,14 +1,10 @@
 import * as vscode from 'vscode'
 import { ConfigurationService } from './config/configuration.js'
-import { EditorSelectionService } from './editor/editor-selection-service.js'
-import { WorkspaceFileService } from './editor/workspace-file-service.js'
 import { HarnessGatewayService } from './gateway/harness-gateway-service.js'
-import { DshPluginCatalogService } from './plugins/plugin-catalog.js'
-import { DshPluginCenterController } from './plugins/plugin-center-controller.js'
-import { DshPluginManager } from './plugins/plugin-manager.js'
 import { BundledRuntimeResolver } from './runtime/bundled-runtime.js'
 import { HarnessHostRuntime } from './runtime/web-runtime.js'
 import { CredentialStore } from './security/credential-store.js'
+import { SessionArchiveService } from './session/session-archive-service.js'
 import { WorkbenchViewProvider } from './ui/workbench-view-provider.js'
 
 let activeRuntime: HarnessHostRuntime | undefined
@@ -21,11 +17,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const resolver = new BundledRuntimeResolver(context, (message, ...args) => vscode.l10n.t(message, ...args))
   const runtime = new HarnessHostRuntime(context, configuration, credentials, resolver, output)
   const gateway = new HarnessGatewayService(runtime, configuration, credentials, output)
-  const pluginManager = new DshPluginManager(context, resolver, output)
-  const pluginCatalog = new DshPluginCatalogService()
-  const pluginCenter = new DshPluginCenterController(pluginManager, pluginCatalog, gateway)
-  const editorSelection = new EditorSelectionService()
-  const workspaceFiles = new WorkspaceFileService()
+  const sessionArchive = new SessionArchiveService(context.workspaceState)
   activeRuntime = runtime
 
   const setApiKey = async (): Promise<void> => {
@@ -46,9 +38,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.extensionUri,
     configuration,
     gateway,
-    pluginCenter,
-    editorSelection,
-    workspaceFiles,
+    sessionArchive,
     {
       setApiKey,
       openSettings: async () => {
@@ -63,9 +53,7 @@ export function activate(context: vscode.ExtensionContext): void {
     configuration,
     runtime,
     gateway,
-    pluginCenter,
-    editorSelection,
-    workspaceFiles,
+    sessionArchive,
     provider,
     vscode.commands.registerCommand('deepseekHarness.openChat', () => { provider.createOrShowPanel() }),
     vscode.commands.registerCommand('deepseekHarness.reloadRuntime', () => provider.refresh()),

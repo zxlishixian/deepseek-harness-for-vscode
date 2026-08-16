@@ -3,7 +3,7 @@
 扩展采用“原生 VS Code 工作台 + Harness Gateway”的单扩展架构。官方 WebUI 不会被加载、嵌套或 iframe；扩展只把官方 Harness 当作本机 Agent 引擎，通过强类型 RPC 和事件流调用它。
 
 ```text
-Native Webview（会话、消息、工具、推理、审批、计划）
+Native Webview（会话、消息、工具、推理、审批、计划、检查器）
                     │ 只传递 UI DTO
                     ▼
 HarnessGatewayService（会话状态、历史修复、业务命令）
@@ -15,50 +15,34 @@ HarnessGatewayService（会话状态、历史修复、业务命令）
 HarnessHostRuntime（VSIX 内置 Node + 官方 dsh Gateway）
 ```
 
-插件管理与对话 RPC 使用两条相互隔离的应用链路：
+工作台由三个可拖拽的窗格组成，配色与字体对齐官方 Harness 设计 token：
 
 ```text
-PluginCenterComponent（搜索、分类、安装状态）
-       │ 仅传递经过校验的 package spec / UI DTO
-       ▼
-WorkbenchViewProvider（确认与安全提示）
-       ├── DshPluginCatalogService（数据源编排与确定性合并）
-       │     ├── GitHubDshPluginTopicSource（真实 Topic 搜索结果）
-       │     └── CuratedDshPluginSource（分类、翻译与 npm 元数据）
-       └── DshPluginManager（官方 web profile 安装状态与 pnpm 命令）
-                         │ 运行时停止期间执行
-                         ▼
-       bundled dsh plugin --profile web + bundled pnpm
+┌───────────────┬──────────────────────────┬──────────────┐
+│ 会话列表       │ 会话头部（子智能体+任务）  │              │
+│ （搜索/归档）   │ 对话区（流式+推理+工具树） │ 工具检查器    │
+│               │ 计划条（Todo + Goal）      │ （参数+结果）  │
+│               │ 输入框（两层 textarea）     │              │
+└───────────────┴──────────────────────────┴──────────────┘
 ```
 
-编辑器上下文使用第三条受限链路，文件正文不会进入 Webview：
-
-```text
-EditorSelectionService ── metadata + opaque id ──► EditorContextComponent
-WorkspaceFileService  ── ranked file DTOs ──────► @ FileMentionComponent
-        ▲                         │ opaque ids / safe open reference
-        └─────────────────────────┘
-        │ Extension Host 校验、读取并限制在当前 workspace
-        ▼
-PromptAttachment[] ──► HarnessGatewayService
-```
+输入框是两层 textarea 结构：透明文字层叠在 `visibility:hidden` 的镜像层上，镜像层决定整块高度，从而让 `/` 命令与 `@` 子智能体引用以纯文本高亮渲染而零宽度漂移。工具栏包含 `+` 命令按钮、权限选择、Plan 开关、模型选择、上下文占用圆环和发送/停止。
 
 ## 目录职责
 
 ```text
 src/
   config/       VS Code 用户配置、枚举校验和持久化
-  domain/       领域选项、事件日志到原生 UI DTO 的纯投影
-  editor/       编辑器选区快照、工作区文件索引、模糊排序和安全跳转
+  domain/       领域模型与纯投影：ConversationNode、事件日志装配、状态/指标派生
   gateway/      Gateway 传输、重连、会话与交互应用服务
-  plugins/      插件目录投影、package spec 校验与官方 profile 管理
   runtime/      内置 Node/dsh 解析、配置覆盖和进程生命周期
   security/     settings.json API Key 与旧 SecretStorage 迁移
+  session/      会话归档（纯客户端行为）
   ui/           Webview CSP、原生工作台和白名单消息桥
   webview/      独立 UI 组件、流式消息状态机、Markdown 安全渲染与本地化契约
 media/          不依赖框架的 Webview 视图资源
 scripts/        平台 VSIX 打包入口
-test/           运行时解析、配置覆盖和事件投影单元测试
+test/           纯函数、投影与 UI 组件单元测试
 ```
 
 ## 状态与协议边界
@@ -75,12 +59,12 @@ test/           运行时解析、配置覆盖和事件投影单元测试
 - 审批和用户问题使用原始 server-request 的 `rpcId` 回填响应；
 - Webview 只接收 `HarnessWorkbenchState` DTO，不接触端口、凭据、文件系统或原始 RPC。
 
-事件投影保持纯函数：用户/助手消息、流式 chunk、推理 block、工具调用/结果、todo 和 turn 结束状态从同一份持久化日志派生。历史回放与实时显示使用同一条代码路径。
+事件投影保持纯函数：用户/助手消息、流式 chunk、推理 block、工具调用/结果、todo 和 turn 结束状态从同一份持久化日志装配为官方 `ConversationNode` 模型（含运行中的 partial 与 tool calls）。历史回放与实时显示使用同一条代码路径。会话状态、逐轮指标（首字延迟/耗时）与上下文压力均为纯派生。
 
 ## 配置与数据归属
 
 - API Key：本机 VS Code 用户 `settings.json` 的 `deepseekHarness.apiKey`，`machine` 作用域。
-- 模型、推理等级和 Agent 默认值：VS Code 用户设置；新进程启动时生成受控 `vscode.patch.yml`。
+- 模型、推理等级和 Agent Preset 默认值：VS Code 用户设置；新进程启动时生成受控 `vscode.patch.yml`。
 - Harness 会话与持久状态：扩展 `globalStorageUri/harness-home`。
 - 官方运行时与独立 Node：VSIX 安装目录，只读。
 - 诊断：DeepSeek Harness OutputChannel；API Key 不写日志，也不发送给 Webview。
@@ -91,12 +75,9 @@ test/           运行时解析、配置覆盖和事件投影单元测试
 - Gateway 只监听 `127.0.0.1` 随机端口；不暴露局域网服务。
 - 输入消息按字段类型校验；普通 UI 内容使用 DOM `textContent`，Markdown 禁用原始 HTML，并经过 DOMPurify 白名单净化。
 - Markdown 远程图片默认禁用；外链只允许 `http`/`https`，工作区文件引用由扩展宿主再次解析并拒绝越界路径。
-- 选中代码正文只保存在 Extension Host 的短期缓存；Webview 只能提交宿主签发的不透明选区/文件 ID，不能指定任意文件作为消息附件。
+- 文件与命令访问由 `permissionMode`（`read-only` / `workspace-write` / `danger-full-access`）与 Harness 审批策略控制。
 - `DEEPSEEK_API_KEY` 只注入独立 Harness 子进程环境。
 - 扩展设置 `DSH_TELEMETRY_DISABLED=1`。
-- 插件目录只接受固定 HTTPS 主机、严格安装命令格式和单一 package spec；Webview 不直接发起网络或进程操作。
-- DSH 在 Windows 上使用 shell 转发 pnpm，因此插件 spec 禁止空白和 shell 元字符，避免拆参与命令注入。
-- 第三方插件的宿主代码在 Agent 沙箱之外运行；安装前必须显示权限边界并由用户确认。
 
 ## 本地化边界
 

@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import type { HistoryEntry } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { HistoryEntry, SessionSummary } from '@deepseek-ai/dsh-host-apiproxy/api'
 import {
-  EXTENSION_COMMANDS,
   projectConversation,
   projectionCommands,
   projectionPermissions,
   projectionTokenUsage,
+  sessionListItem,
 } from '../src/domain/workbench-state.js'
 
 describe('projectConversation', () => {
-  it('projects durable messages, reasoning, tools and the latest todo snapshot', () => {
+  it('projects durable messages, reasoning, running tools and the latest todo snapshot', () => {
     const entries = [
       entry(0, 'user/message', {
         id: 'u1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: '修复测试' }],
@@ -17,7 +17,7 @@ describe('projectConversation', () => {
       entry(1, 'assistant/message', {
         turn: 1, step: 1,
         message: {
-          id: 'a1', role: 'assistant', source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+          id: 'a1', role: 'assistant', source: { kind: 'model', provider: 'p', model: 'm' },
           content: [{ type: 'reasoning', text: '先定位' }, { type: 'text', text: '开始修改。' }],
         },
       }, 'append'),
@@ -26,20 +26,25 @@ describe('projectConversation', () => {
     ] as HistoryEntry[]
 
     const result = projectConversation(entries)
-    expect(result.messages.map((message) => message.kind)).toEqual(['message', 'message', 'tool'])
-    expect(result.messages[1]?.blocks).toEqual([
-      { kind: 'reasoning', text: '先定位' },
-      { kind: 'text', text: '开始修改。' },
-    ])
+    expect(result.nodes.map((node) => node.kind)).toEqual(['user', 'assistant'])
+    expect(result.nodes[1]).toMatchObject({
+      blocks: [
+        { kind: 'reasoning', text: '先定位' },
+        { kind: 'text', text: '开始修改。' },
+      ],
+    })
+    expect(result.runningCalls.map((call) => call.callId)).toEqual(['c1'])
     expect(result.todos).toEqual([{ content: '运行测试', status: 'in_progress' }])
   })
 
-  it('shows streamed chunks only until their finalized assistant message exists', () => {
+  it('keeps streamed chunks as the partial until their assistant message finalizes', () => {
     const partial = [
       entry(0, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } }),
       entry(1, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: '流式' } }),
     ] as HistoryEntry[]
-    expect(projectConversation(partial).messages[0]?.blocks).toEqual([{ kind: 'text', text: '流式', streaming: true }])
+
+    expect(projectConversation(partial).partial).toEqual({ turn: 1, step: 1, blocks: [{ kind: 'text', text: '流式' }] })
+    expect(projectConversation(partial).nodes).toEqual([])
 
     const finalized = [...partial, entry(2, 'assistant/message', {
       turn: 1, step: 1,
@@ -48,8 +53,11 @@ describe('projectConversation', () => {
         content: [{ type: 'text', text: '最终' }],
       },
     }, 'append')] as HistoryEntry[]
-    expect(projectConversation(finalized).messages).toHaveLength(1)
-    expect(projectConversation(finalized).messages[0]?.blocks).toEqual([{ kind: 'text', text: '最终' }])
+
+    const result = projectConversation(finalized)
+    expect(result.nodes).toHaveLength(1)
+    expect(result.nodes[0]).toMatchObject({ blocks: [{ kind: 'text', text: '最终' }] })
+    expect(result.partial).toBeNull()
   })
 
   it('marks reasoning complete at block-end while the following text still streams', () => {
@@ -64,13 +72,13 @@ describe('projectConversation', () => {
       entry(4, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 1, text: '开始回答' } }),
     ] as HistoryEntry[]
 
-    expect(projectConversation(entries).messages[0]?.blocks).toEqual([
+    expect(projectConversation(entries).partial?.blocks).toEqual([
       { kind: 'reasoning', text: '先分析' },
-      { kind: 'text', text: '开始回答', streaming: true },
+      { kind: 'text', text: '开始回答' },
     ])
   })
 
-  it('pairs slash-command lifecycle events into one visible result row', () => {
+  it('pairs slash-command lifecycle events into one command node', () => {
     const entries = [
       entry(4, 'command/run', {
         commandId: 'cmd-1', name: 'permission', args: ' read-only', source: { kind: 'user' },
@@ -80,15 +88,16 @@ describe('projectConversation', () => {
       }),
     ] as HistoryEntry[]
 
-    expect(projectConversation(entries).messages).toEqual([expect.objectContaining({
-      id: 'command-cmd-1',
-      title: '/permission read-only',
-      status: 'success',
-      detail: 'preset read-only',
+    expect(projectConversation(entries).nodes).toEqual([expect.objectContaining({
+      kind: 'command',
+      commandId: 'cmd-1',
+      name: 'permission',
+      args: ' read-only',
+      outcome: { kind: 'success', text: 'preset read-only' },
     })])
   })
 
-  it('shows one turn duration on the final visible result', () => {
+  it('builds a turn footer from turn boundaries', () => {
     const entries = [
       timedEntry(0, 1_000, 'turn/start', { turn: 1 }),
       timedEntry(1, 1_200, 'assistant/message', {
@@ -100,46 +109,138 @@ describe('projectConversation', () => {
       }, 'append'),
       timedEntry(2, 2_000, 'tool/result', {
         turn: 1, step: 1, error: undefined,
-        message: { id: 'r1', role: 'tool', source: { kind: 'tool', callId: 'c1' }, content: [{ type: 'text', text: 'ok' }] },
+        message: {
+          id: 'r1', role: 'user', source: { kind: 'tool', callId: 'c1' },
+          content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'ok' }] }],
+        },
       }),
       timedEntry(3, 4_600, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
     ] as HistoryEntry[]
 
-    const messages = projectConversation(entries).messages
-    expect(messages[0]?.workDuration).toBeUndefined()
-    expect(messages[1]?.workDuration).toEqual({ startedAt: 1_000, endedAt: 4_600 })
+    expect(projectConversation(entries).turnTails).toEqual([{ turn: 1, startedAt: 1_000, endedAt: 4_600 }])
+  })
+
+  it('emits a turn-error node for a failed turn with no scheduled retry', () => {
+    const entries = [
+      entry(0, 'turn/start', { turn: 1 }),
+      entry(1, 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'PROVIDER', message: 'boom' } } }),
+    ] as HistoryEntry[]
+
+    expect(projectConversation(entries).nodes).toEqual([expect.objectContaining({
+      kind: 'turn-error',
+      turn: 1,
+      message: 'boom',
+      code: 'PROVIDER',
+    })])
+  })
+
+  it('emits a max-tokens notice for an output-capped turn', () => {
+    const entries = [
+      entry(0, 'turn/start', { turn: 1 }),
+      entry(1, 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } }),
+    ] as HistoryEntry[]
+
+    expect(projectConversation(entries).nodes).toEqual([expect.objectContaining({
+      kind: 'turn-max-tokens',
+      turn: 1,
+    })])
+  })
+
+  it('suppresses the turn-error node when a retry is scheduled for the turn', () => {
+    const entries = [
+      entry(0, 'turn/start', { turn: 1 }),
+      entry(1, 'llm/retry', {
+        mode: 'normal', maxRetries: 3, retryId: 'r1', turn: 1, step: 1,
+        provider: 'p', policyKey: 'k', retry: 0, delayMs: 100,
+        failure: { code: 'PROVIDER', message: 'boom' },
+      }),
+      entry(2, 'turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'PROVIDER', message: 'boom' } } }),
+    ] as HistoryEntry[]
+
+    const nodes = projectConversation(entries).nodes
+    expect(nodes.map((node) => node.kind)).toEqual(['model-retry'])
+    expect(nodes[0]).toMatchObject({ retryState: 'cancelled' })
+  })
+
+  it('marks a compaction checkpoint with its summary and shadowed counts', () => {
+    const entries = [
+      entry(0, 'compaction/summary', {
+        compactionId: 'cp1', summary: [{ type: 'text', text: '上下文已压缩' }],
+        shadowedRange: {}, shadowedSeqs: [1, 2], shadowedTokenCount: 100, provider: 'p', model: 'm',
+      }),
+      entry(1, 'user/message', {
+        id: 'u1', role: 'user',
+        source: { kind: 'plugin', plugin: 'compact', compactionId: 'cp1', sourceCommandId: 'cmd-1' },
+        content: [{ type: 'text', text: '…' }],
+      }, { op: 'replace', start: 0, end: 1 }),
+    ] as HistoryEntry[]
+
+    expect(projectConversation(entries).nodes).toEqual([expect.objectContaining({
+      kind: 'compaction',
+      summary: '上下文已压缩',
+      summaryEventSeq: 0,
+      shadowedItemCount: 2,
+      shadowedTokenCount: 100,
+    })])
+  })
+
+  it('degrades unknown append surface events to a raw row', () => {
+    const entries = [entry(0, 'some/future-event', { foo: 1 }, 'append')] as HistoryEntry[]
+    expect(projectConversation(entries).nodes).toEqual([expect.objectContaining({
+      kind: 'unknown',
+      type: 'some/future-event',
+    })])
+  })
+
+  it('attaches nested code-dispatch children to their running parent call', () => {
+    const entries = [
+      entry(0, 'tool/call', { turn: 1, step: 1, callId: 'root', name: 'bash', arguments: '{}' }),
+      entry(1, 'tool/code-dispatch-start', { rootCallId: 'root', parentCallId: 'root', subCallId: 'child', name: 'read_file', arguments: {} }),
+      entry(2, 'tool/code-dispatch', {
+        rootCallId: 'root', parentCallId: 'root', subCallId: 'child', name: 'read_file',
+        arguments: {}, isError: false, content: [{ type: 'text', text: 'ok' }],
+      }),
+    ] as HistoryEntry[]
+
+    const result = projectConversation(entries)
+    expect(result.runningCalls.map((call) => call.callId)).toEqual(['root'])
+    expect(result.runningCalls[0]?.subCalls).toMatchObject([{ kind: 'tool-result' }])
   })
 })
 
 describe('projectionCommands', () => {
-  it('merges host command descriptors with the extension commands, sorted by name', () => {
+  it('keeps only host command descriptors, sorted by name', () => {
     const commands = projectionCommands([
       { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } },
       { name: 'compact', description: '压缩当前会话上下文' },
       { name: 'permission', description: '切换权限预设', input: { hint: '<preset>' } },
     ])
-    expect(commands.map((command) => command.name)).toEqual([
-      'compact', 'permission', 'plan',
-      ...EXTENSION_COMMANDS.map((command) => command.name),
-    ])
-    expect(commands[2]).toMatchObject({ name: 'plan', kind: 'host', input: { hint: '[off|message]' } })
+    expect(commands.map((command) => command.name)).toEqual(['compact', 'permission', 'plan'])
+    expect(commands[2]).toEqual({ name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } })
     expect(commands[0]?.input).toBeUndefined()
-    expect(commands.filter((command) => command.kind === 'extension')).toHaveLength(EXTENSION_COMMANDS.length)
   })
 
-  it('skips malformed entries and still exposes the extension commands', () => {
+  it('skips malformed entries', () => {
     const commands = projectionCommands([
       { name: 42, description: 'broken' },
       { name: 'goal', description: '' },
       { name: 'ok', description: '有效命令', input: { hint: '' } },
     ])
-    expect(commands.filter((command) => command.kind === 'host').map((command) => command.name)).toEqual(['ok'])
-    expect(commands.at(-1)?.kind).toBe('extension')
+    expect(commands.map((command) => command.name)).toEqual(['ok'])
   })
 
-  it('returns the extension commands only when the host list is empty or absent', () => {
-    expect(projectionCommands([])).toEqual(EXTENSION_COMMANDS)
-    expect(projectionCommands(undefined)).toEqual(EXTENSION_COMMANDS)
+  it('returns an empty list when the host list is empty or absent', () => {
+    expect(projectionCommands([])).toEqual([])
+    expect(projectionCommands(undefined)).toEqual([])
+  })
+})
+
+describe('sessionListItem', () => {
+  it('derives the sidebar status dot from the running flag', () => {
+    expect(sessionListItem({ sessionId: 's1', updatedAt: 1, running: true, blank: false } as SessionSummary).status)
+      .toBe('ongoing')
+    expect(sessionListItem({ sessionId: 's2', updatedAt: 1, running: false, blank: true } as SessionSummary).status)
+      .toBe('done')
   })
 })
 
@@ -206,7 +307,7 @@ describe('projectionTokenUsage', () => {
   })
 })
 
-function entry(seq: number, type: string, data: unknown, surfaceOp?: 'append'): unknown {
+function entry(seq: number, type: string, data: unknown, surfaceOp?: unknown): unknown {
   return { event: { seq, time: seq + 1, type, data, ...(surfaceOp === undefined ? {} : { surfaceOp }) } }
 }
 

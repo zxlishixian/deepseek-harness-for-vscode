@@ -36,8 +36,6 @@ describe('extension localization', () => {
     const sourceFiles = [
       'src/extension.ts',
       'src/gateway/harness-gateway-service.ts',
-      'src/plugins/plugin-manager.ts',
-      'src/plugins/plugin-center-controller.ts',
       'src/runtime/bundled-runtime.ts',
       'src/runtime/web-runtime.ts',
       'src/ui/workbench-view-provider.ts',

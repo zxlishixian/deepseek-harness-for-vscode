@@ -4,12 +4,28 @@ import { composerConfigurationInput } from '../src/webview/composer-configuratio
 import { createComposerConfigurationComponent } from '../src/webview/composer-configuration/component.js'
 import { composerStatusText } from '../src/webview/composer-status.js'
 import { createContextMeterComponent } from '../src/webview/context-meter/component.js'
-import { createEditorContextComponent } from '../src/webview/editor-context/component.js'
-import { createFileMentionComponent } from '../src/webview/file-mention/component.js'
 import { permissionSelectOptions } from '../src/webview/permission/adapter.js'
-import { createPluginCenterComponent } from '../src/webview/plugin-center/component.js'
 import { StreamingMessageComponent } from '../src/webview/streaming-message/component.js'
 import { createWorkDurationComponent } from '../src/webview/work-duration/component.js'
+import { createTurnTailComponent } from '../src/webview/turn-tail/component.js'
+import { createToolNodeComponent } from '../src/webview/tool-node/component.js'
+import { createCommandNodeComponent } from '../src/webview/command-node/component.js'
+import { createNoticeNodeComponent } from '../src/webview/notice-node/component.js'
+import { createDetailsPanelComponent } from '../src/webview/details-panel/component.js'
+import { createComposerDockComponent } from '../src/webview/composer-dock/component.js'
+import { createSessionHeaderComponent } from '../src/webview/session-header/component.js'
+import { scanTextRefs } from '../src/webview/text-ref.js'
+import {
+  DETAILS_DEFAULT,
+  DETAILS_MAX,
+  DETAILS_MIN,
+  SIDEBAR_AUTO_COLLAPSE,
+  SIDEBAR_DEFAULT,
+  SIDEBAR_MAX,
+  SIDEBAR_MIN,
+  computeColumns,
+  sidebarCollapsed,
+} from '../src/webview/layout.js'
 
 const vscode = acquireVsCodeApi()
 const t = createWebviewTranslator()
@@ -19,7 +35,6 @@ const elements = {
   connection: byId('connection'),
   historyToggle: byId('history-toggle'),
   historyPanel: byId('history-panel'),
-  historyClose: byId('history-close'),
   historySearch: byId('history-search'),
   sessionList: byId('session-list'),
   newSession: byId('new-session'),
@@ -40,35 +55,40 @@ const elements = {
   loadOlder: byId('load-older'),
   empty: byId('empty'),
   messages: byId('messages'),
-  details: byId('details'),
-  detailsToggle: byId('details-toggle'),
-  detailContent: byId('detail-content'),
-  todoCount: byId('todo-count'),
-  skillCount: byId('skill-count'),
-  jobCount: byId('job-count'),
-  agentCount: byId('agent-count'),
+  bodyColumns: document.querySelector('.body-columns'),
+  detailsPanel: byId('details-panel'),
+  detailsTitle: byId('details-title'),
+  detailsBody: byId('details-body'),
+  detailsClose: byId('details-close'),
   interactions: byId('interactions'),
   prompt: byId('prompt'),
   commandMenu: byId('command-menu'),
-  attachSelection: byId('attach-selection'),
+  composerAdd: byId('composer-add'),
+  planToggle: byId('plan-toggle'),
+  composerBackdrop: document.querySelector('.composer-backdrop'),
+  composerMirror: document.querySelector('.composer-mirror'),
+  composerScroll: document.querySelector('.composer-scroll'),
   send: byId('send'),
   composerStatus: byId('composer-status'),
 }
 
 let payload
-let currentDetail = 'todos'
 let renderedSessionId = ''
+let lastActiveId = ''
 const messageSignatures = new WeakMap()
 let searchResults = []
 let searchTimer
 let menuState = null
 let menuLoadedSession = null
+let sessionMenuEl = null
 let selectorSignature = ''
 let interactionSignature = ''
-let detailSignature = ''
+const layout = { sidebar: SIDEBAR_DEFAULT, details: 0, narrowExpanded: false }
+let selectedCallId = null
+let dragState = null
+let dragFrame = 0
 const markdownActions = {
   openExternal: (url) => post('openExternal', { url }),
-  openFile: (reference) => post('openFile', reference),
   copyCode: (code) => copyText(code),
   defaultCodeLanguage: t('code'),
   copyLabel: t('copy'),
@@ -81,49 +101,26 @@ const composerConfiguration = createComposerConfigurationComponent({
   onOpen: closeCommandMenu,
 })
 const contextMeter = createContextMeterComponent({ document, translate: t })
-const editorContext = createEditorContextComponent({
-  document,
-  translate: t,
-  onRequestSelection: () => post('attachSelection'),
-  onOpenFile: (reference) => post('openFile', reference),
-})
-const fileMention = createFileMentionComponent({
-  document,
-  prompt: elements.prompt,
-  translate: t,
-  onSearch: (query, requestId) => post('searchWorkspaceFiles', { query, requestId }),
-  onChoose: (file) => editorContext.addFile(file),
-  onOpen: closeCommandMenu,
-})
 const workDuration = createWorkDurationComponent({ document, translate: t })
+const turnTail = createTurnTailComponent({ document, translate: t, workDuration })
+const toolNode = createToolNodeComponent({ document, translate: t, onInspect: inspectTool })
+const commandNode = createCommandNodeComponent({ document, translate: t })
+const noticeNode = createNoticeNodeComponent({ document, translate: t })
+const detailsPanel = createDetailsPanelComponent({ document, translate: t })
+const composerDock = createComposerDockComponent({ document, translate: t, post })
+const sessionHeader = createSessionHeaderComponent({ document, translate: t, post })
 const streamingMessage = new StreamingMessageComponent({
   document,
   reasoningLabel: () => t('reasoningProcess'),
   thinkingLabel: () => t('thinking'),
+  imageLabel: () => t('imageAttachment'),
   renderMarkdown: (target, source) => renderMarkdown(target, source, markdownActions),
   onStreamFrame: () => {
     if (isNearBottom(elements.conversation)) elements.conversation.scrollTop = elements.conversation.scrollHeight
   },
 })
-const pluginCenter = createPluginCenterComponent({
-  document,
-  translate: t,
-  onOpen: () => toggleHistory(false),
-  onLoad: (force) => post('loadPlugins', { force }),
-  onInstall: ({ spec, name, repositoryUrl }) => post('installPlugin', {
-    spec,
-    ...(name === undefined ? {} : { name }),
-    ...(repositoryUrl === undefined ? {} : { repositoryUrl }),
-  }),
-  onRemove: (name) => post('removePlugin', { name }),
-  onOpenExternal: (url) => post('openExternal', { url }),
-})
 
 window.addEventListener('message', (event) => {
-  if (event.data?.type === 'pluginState') {
-    pluginCenter.update(event.data.snapshot)
-    return
-  }
   if (event.data?.type === 'searchResults') {
     if (event.data.query === elements.historySearch.value.trim()) {
       searchResults = event.data.results
@@ -131,21 +128,12 @@ window.addEventListener('message', (event) => {
     }
     return
   }
-  if (event.data?.type === 'editorSelection') {
-    editorContext.updateSelection(event.data.selection)
-    return
-  }
-  if (event.data?.type === 'workspaceFileSuggestions') {
-    fileMention.acceptSuggestions(event.data.requestId, event.data.query, event.data.files || [])
-    return
-  }
   if (event.data?.type !== 'state') return
   payload = event.data
   render()
 })
 
-elements.historyToggle.addEventListener('click', () => toggleHistory(true))
-elements.historyClose.addEventListener('click', () => toggleHistory(false))
+elements.historyToggle.addEventListener('click', () => toggleSidebar())
 elements.historySearch.addEventListener('input', () => {
   clearTimeout(searchTimer)
   const query = elements.historySearch.value.trim()
@@ -160,8 +148,6 @@ elements.historySearch.addEventListener('input', () => {
 })
 elements.newSession.addEventListener('click', () => {
   composerConfiguration.reset()
-  fileMention.close()
-  editorContext.markSubmitted()
   post('newSession')
 })
 elements.sessionTitle.addEventListener('click', () => post('rename'))
@@ -178,10 +164,7 @@ elements.openSettings.addEventListener('click', () => post('openSettings'))
 elements.retry.addEventListener('click', () => post('retry'))
 elements.showLogs.addEventListener('click', () => post('showLogs'))
 elements.loadOlder.addEventListener('click', () => post('loadOlder'))
-elements.detailsToggle.addEventListener('click', () => {
-  elements.details.classList.toggle('hidden')
-  if (!elements.details.classList.contains('hidden')) renderDetails()
-})
+elements.detailsClose.addEventListener('click', () => closeDetails())
 elements.send.addEventListener('click', () => {
   if (payload?.state.active?.running) post('cancel')
   else sendPrompt()
@@ -212,9 +195,10 @@ elements.prompt.addEventListener('keydown', (event) => {
     if (event.key === 'Tab') {
       event.preventDefault()
       if (menuState.items[menuState.index]) {
+        const trigger = menuState.trigger
         const name = menuState.items[menuState.index].name
         closeCommandMenu()
-        insertCommand(name)
+        insertReference(trigger, name)
       }
       return
     }
@@ -233,20 +217,21 @@ elements.prompt.addEventListener('blur', () => {
   setTimeout(() => { if (!elements.commandMenu.matches(':hover')) closeCommandMenu() }, 120)
 })
 elements.permission.addEventListener('change', () => post('setPermission', { value: elements.permission.value }))
-for (const tab of document.querySelectorAll('[data-detail]')) {
-  tab.addEventListener('click', () => {
-    currentDetail = tab.dataset.detail
-    renderDetails()
-  })
-}
+elements.composerAdd.addEventListener('click', openComposerMenu)
+elements.planToggle.addEventListener('click', () => {
+  const plan = payload?.state?.active?.plan
+  if (!plan || plan.pending) return
+  post('setPlan', { active: !plan.active })
+})
+window.addEventListener('resize', applyLayout)
+for (const handle of document.querySelectorAll('.drag-handle')) bindDragHandle(handle)
 
 function render() {
   if (!payload) return
   const { state } = payload
   const active = state.active
-  editorContext.setAutoAttach(payload.configuration?.autoAttachSelection === true)
   renderPhase(state)
-  if (!elements.historyPanel.classList.contains('hidden')) renderSessions()
+  if (!isSidebarCollapsed()) renderSessions()
   renderSelectors(active)
   elements.keyBanner.classList.toggle('hidden', state.hasApiKey)
   elements.sessionTitle.textContent = active?.title || t('newConversation')
@@ -256,8 +241,15 @@ function render() {
   elements.loadOlder.classList.toggle('hidden', !active?.hasMore)
   renderMessages(active)
   renderInteractions(active)
-  if (!elements.details.classList.contains('hidden')) renderDetails()
+  if (active?.id !== lastActiveId) {
+    lastActiveId = active?.id ?? ''
+    selectedCallId = null
+    closeDetails()
+  }
+  if (selectedCallId !== null) renderDetailsPanel()
   renderComposer(active)
+  composerDock.render(active)
+  sessionHeader.render(active)
   updateCommandMenu()
 }
 
@@ -275,30 +267,109 @@ function renderPhase(state) {
 
 function renderSessions() {
   if (!payload) return
+  closeSessionMenu()
   const query = elements.historySearch.value.trim()
   const snippets = new Map(searchResults.map((result) => [result.sessionId, result.snippet]))
   const resultIds = new Set(searchResults.map((result) => result.sessionId))
-  const sessions = query === '' ? payload.state.sessions : payload.state.sessions.filter((session) => resultIds.has(session.id))
+  const recent = query === ''
+    ? payload.state.sessions
+    : payload.state.sessions.filter((session) => resultIds.has(session.id))
+  const archived = query === '' ? payload.state.archivedSessions || [] : []
   const fragment = document.createDocumentFragment()
-  for (const session of sessions) {
-    const button = node('button', 'session-row')
-    if (session.id === payload.state.active?.id) button.classList.add('active')
-    const top = node('span', 'session-row-top')
-    top.append(node('span', 'session-name', session.title), node('span', `running-dot${session.running ? ' active' : ''}`))
-    const meta = node('span', 'session-meta', formatRelativeTime(session.updatedAt))
-    if (session.agentPreset) meta.append(` · ${session.agentPreset}`)
-    button.append(top, meta)
-    const snippet = snippets.get(session.id)
-    if (snippet) button.append(node('span', 'session-snippet', snippet))
-    button.addEventListener('click', () => {
-      composerConfiguration.reset()
-      post('selectSession', { sessionId: session.id })
-      toggleHistory(false)
-    })
-    fragment.append(button)
+  for (const session of recent) fragment.append(sessionRow(session, snippets.get(session.id), false))
+  if (archived.length > 0) {
+    fragment.append(node('div', 'session-group-header', t('archived')))
+    for (const session of archived) fragment.append(sessionRow(session, undefined, true))
   }
-  if (sessions.length === 0) fragment.append(node('p', 'muted-empty', t('noMatchingConversations')))
+  if (recent.length === 0 && archived.length === 0) fragment.append(node('p', 'muted-empty', t('noMatchingConversations')))
   elements.sessionList.replaceChildren(fragment)
+}
+
+function sessionRow(session, snippet, archived) {
+  const row = node('div', 'session-row')
+  row.setAttribute('role', 'button')
+  row.tabIndex = 0
+  if (session.id === payload.state.active?.id) row.classList.add('active')
+  const top = node('span', 'session-row-top')
+  top.append(node('span', 'session-name', session.title), node('span', `running-dot ${session.status || 'done'}`))
+  const meta = node('span', 'session-meta', formatRelativeTime(session.updatedAt))
+  if (session.agentPreset) meta.append(` · ${session.agentPreset}`)
+  row.append(top, meta)
+  if (snippet) row.append(node('span', 'session-snippet', snippet))
+  const menuButton = node('button', 'session-row-menu', '⋯')
+  menuButton.type = 'button'
+  menuButton.title = t('sessionActions')
+  menuButton.setAttribute('aria-label', t('sessionActions'))
+  menuButton.addEventListener('click', (event) => {
+    event.stopPropagation()
+    openSessionMenu(session, menuButton, archived)
+  })
+  row.append(menuButton)
+  row.addEventListener('click', () => {
+    if (archived) return
+    composerConfiguration.reset()
+    post('selectSession', { sessionId: session.id })
+  })
+  row.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      row.click()
+    }
+  })
+  return row
+}
+
+function openSessionMenu(session, anchor, archived) {
+  closeSessionMenu()
+  const menu = node('div', 'session-menu')
+  menu.setAttribute('role', 'menu')
+  for (const [label, action, extra] of sessionMenuItems(session, archived)) {
+    const item = node('button', `session-menu-item${extra ? ` ${extra}` : ''}`, label)
+    item.type = 'button'
+    item.setAttribute('role', 'menuitem')
+    item.addEventListener('click', () => {
+      closeSessionMenu()
+      action()
+    })
+    menu.append(item)
+  }
+  document.body.append(menu)
+  sessionMenuEl = menu
+  positionSessionMenu(menu, anchor)
+  setTimeout(() => document.addEventListener('mousedown', onSessionMenuOutside, true), 0)
+}
+
+function sessionMenuItems(session, archived) {
+  if (archived) {
+    return [[t('unarchive'), () => post('unarchiveSession', { sessionId: session.id }), '']]
+  }
+  return [
+    [t('rename'), () => post('renameSession', { sessionId: session.id }), ''],
+    [t('fork'), () => post('forkSession', { sessionId: session.id }), ''],
+    [t('archive'), () => post('archiveSession', { sessionId: session.id }), 'danger'],
+  ]
+}
+
+function onSessionMenuOutside(event) {
+  if (sessionMenuEl && !sessionMenuEl.contains(event.target)) closeSessionMenu()
+}
+
+function closeSessionMenu() {
+  document.removeEventListener('mousedown', onSessionMenuOutside, true)
+  if (sessionMenuEl) {
+    sessionMenuEl.remove()
+    sessionMenuEl = null
+  }
+}
+
+function positionSessionMenu(menu, anchor) {
+  const rect = anchor.getBoundingClientRect()
+  menu.style.top = `${rect.bottom + 4}px`
+  menu.style.left = `${Math.max(8, rect.left)}px`
+  requestAnimationFrame(() => {
+    const menuRect = menu.getBoundingClientRect()
+    if (menuRect.right > window.innerWidth - 8) menu.style.left = `${Math.max(8, window.innerWidth - menuRect.width - 8)}px`
+  })
 }
 
 function renderSelectors(active) {
@@ -309,7 +380,6 @@ function renderSelectors(active) {
     fallbackOptions: payload.fallbackOptions,
     presets: payload.state.presets,
     models: active?.models,
-    model: active?.model,
     agentPreset: active?.agentPreset,
     parentSessionId: active?.parentSessionId,
     permissions: active?.permissions,
@@ -343,7 +413,7 @@ function replaceOptions(select, options, selected) {
 }
 
 function renderMessages(active) {
-  const messages = active?.messages || []
+  const rows = conversationRows(active)
   const sessionId = active?.id || ''
   const sessionChanged = sessionId !== renderedSessionId
   const shouldStick = sessionChanged || isNearBottom(elements.conversation)
@@ -354,20 +424,20 @@ function renderMessages(active) {
   const retained = new Set()
   let cursor = elements.messages.firstElementChild
 
-  for (const item of messages) {
-    const id = String(item.id)
-    const signature = messageSignature(item)
+  for (const row of rows) {
+    const id = row.key
+    const signature = rowSignature(row)
     let element = existing.get(id)
     if (!element) {
-      element = renderMessage(item)
+      element = renderRow(row)
       setMessageMetadata(element, id, signature)
     } else if (messageSignatures.get(element) !== signature) {
-      if (patchStreamingMessage(element, item)) {
+      if (patchRow(element, row)) {
         messageSignatures.set(element, signature)
       } else {
         const wasCursor = element === cursor
         const disclosureState = captureDisclosures(element)
-        const replacement = renderMessage(item)
+        const replacement = renderRow(row)
         restoreDisclosures(replacement, disclosureState)
         setMessageMetadata(replacement, id, signature)
         element.replaceWith(replacement)
@@ -383,9 +453,9 @@ function renderMessages(active) {
   for (const [id, element] of existing) {
     if (!retained.has(id)) element.remove()
   }
-  elements.empty.classList.toggle('hidden', messages.length > 0)
+  elements.empty.classList.toggle('hidden', rows.length > 0)
   const prepended = !sessionChanged && previousFirstId !== undefined
-    && messages.findIndex((item) => String(item.id) === previousFirstId) > 0
+    && rows.findIndex((row) => row.key === previousFirstId) > 0
   if (shouldStick) {
     elements.conversation.scrollTop = elements.conversation.scrollHeight
   } else if (prepended) {
@@ -397,46 +467,113 @@ function renderMessages(active) {
   renderedSessionId = sessionId
 }
 
-function renderMessage(item) {
-  if (item.kind === 'tool') return renderTool(item)
-  if (item.kind === 'context') return renderContext(item)
-  if (item.kind === 'notice') {
-    const notice = node('div', `notice ${item.status || ''}`)
-    notice.append(node('strong', '', item.title || t('status')))
-    if (item.detail) notice.append(node('span', '', item.detail))
-    workDuration.update(notice, item.workDuration)
-    return notice
+/** Flattens nodes + running calls + partial into reconcileable rows, interleaving turn footers. */
+function conversationRows(active) {
+  const nodes = active?.nodes || []
+  const runningCalls = active?.runningCalls || []
+  const partial = active?.partial
+  const tails = active?.turnTails || []
+  const tailByTurn = new Map(tails.map((tail) => [tail.turn, tail]))
+  const segments = []
+  const lastByTurn = new Map()
+  const push = (key, turn, segment) => {
+    segments.push({ key, turn, ...segment })
+    if (turn !== undefined) lastByTurn.set(turn, segments.length - 1)
   }
-  const article = node('article', `message ${item.role || ''}`)
-  const label = node('div', 'message-label', item.role === 'user' ? t('you') : 'DeepSeek')
-  article.append(label)
+  for (const node of nodes) {
+    // Assistant steps share their key with the in-flight partial, so the
+    // streamed card transitions in place when the step finalizes.
+    push(node.kind === 'assistant' ? `a:${node.turn}:${node.step}` : `n:${node.seq}`, node.turn, { node })
+  }
+  for (const call of runningCalls) push(`c:${call.callId}`, call.turn, { runningCall: call })
+  if (partial) push(`a:${partial.turn}:${partial.step}`, partial.turn, { partial })
+
+  const rows = []
+  segments.forEach((segment, index) => {
+    rows.push(segment)
+    if (segment.turn !== undefined && lastByTurn.get(segment.turn) === index) {
+      const tail = tailByTurn.get(segment.turn)
+      if (tail) rows.push({ key: `t:${segment.turn}`, turn: segment.turn, tail })
+    }
+  })
+  return rows
+}
+
+function rowSignature(row) {
+  return JSON.stringify(row)
+}
+
+function renderRow(row) {
+  if (row.tail) return turnTail.render(row.tail)
+  if (row.runningCall) return toolNode.renderRunning(row.runningCall)
+  if (row.partial) return renderAssistantCard({ blocks: row.partial.blocks }, true)
+  return renderNode(row.node)
+}
+
+function renderNode(node) {
+  switch (node.kind) {
+    case 'user':
+    case 'steering':
+      return renderUserMessage(node)
+    case 'assistant':
+      return renderAssistantCard(node, false)
+    case 'context':
+      return renderContextNode(node)
+    case 'tool-result':
+      return toolNode.renderResult(node)
+    case 'command':
+      return commandNode.render(node)
+    case 'compaction':
+    case 'turn-error':
+    case 'turn-max-tokens':
+    case 'model-retry':
+    case 'unknown':
+      return noticeNode.render(node)
+    default:
+      return noticeNode.render({ kind: 'unknown', type: node.kind, data: node })
+  }
+}
+
+function renderUserMessage(node) {
+  const article = node('article', 'message user')
+  article.append(node('div', 'message-label', t('you')))
   const body = node('div', 'message-body')
-  streamingMessage.render(body, item)
+  renderContentBlocks(body, node.content)
   article.append(body)
-  workDuration.update(article, item.workDuration)
   return article
 }
 
-function renderTool(item) {
-  const container = node('div', 'tool-item')
-  const details = node('details', `tool-card ${item.status || ''}`)
-  details.dataset.disclosureKey = 'tool'
-  const summary = node('summary')
-  summary.append(node('span', 'tool-status'), node('span', 'tool-title', item.title || t('tool')))
-  details.append(summary)
-  if (item.detail) details.append(node('pre', 'tool-detail', item.detail))
-  container.append(details)
-  workDuration.update(container, item.workDuration)
-  return container
+function renderAssistantCard(card, running) {
+  const article = node('article', 'message assistant')
+  article.append(node('div', 'message-label', 'DeepSeek'))
+  const body = node('div', 'message-body')
+  streamingMessage.render(body, { running, blocks: card.blocks })
+  article.append(body)
+  return article
 }
 
-function renderContext(item) {
+function renderContextNode(node) {
   const details = node('details', 'context-card')
   details.dataset.disclosureKey = 'context'
-  details.append(node('summary', '', item.title || t('context')))
-  const text = (item.blocks || []).map((block) => block.text).join('\n')
-  details.append(node('pre', '', text))
+  details.append(node('summary', '', node.provenance?.label || t('context')))
+  const body = node('div', 'context-body')
+  renderContentBlocks(body, node.content)
+  details.append(body)
   return details
+}
+
+function renderContentBlocks(container, content) {
+  for (const block of content || []) {
+    if (block.type === 'text' || block.type === 'reasoning') {
+      const div = node('div', 'content-block text markdown-body')
+      renderMarkdown(div, block.text, markdownActions)
+      container.append(div)
+    } else if (block.type === 'image') {
+      container.append(node('div', 'content-block image', t('imageAttachment')))
+    } else {
+      container.append(node('div', 'content-block image', JSON.stringify(block)))
+    }
+  }
 }
 
 function renderInteractions(active) {
@@ -506,118 +643,6 @@ function renderQuestions(pending) {
   return form
 }
 
-function renderDetails() {
-  if (!payload) return
-  const active = payload.state.active
-  const nextSignature = JSON.stringify({
-    sessionId: active?.id,
-    currentDetail,
-    todos: active?.todos,
-    plan: active?.plan,
-    goal: active?.goal,
-    skills: active?.skills,
-    subagents: active?.subagents,
-    jobs: active?.jobs,
-    running: active?.running,
-  })
-  if (nextSignature === detailSignature) return
-  detailSignature = nextSignature
-  elements.todoCount.textContent = String(active?.todos.length || 0)
-  elements.skillCount.textContent = String(active?.skills.length || 0)
-  elements.jobCount.textContent = String(active?.jobs.length || 0)
-  elements.agentCount.textContent = String(active?.subagents.length || 0)
-  for (const tab of document.querySelectorAll('[data-detail]')) tab.classList.toggle('active', tab.dataset.detail === currentDetail)
-  const fragment = document.createDocumentFragment()
-  if (currentDetail === 'todos') {
-    if (active?.plan) {
-      const mode = node('div', 'plan-mode-row')
-      const text = active.plan.pending ? t('planChanging') : active.plan.active ? t('planEnabled') : t('planDisabled')
-      mode.append(node('span', '', text))
-      const toggle = node('button', 'secondary-button', active.plan.active ? t('disable') : t('enable'))
-      toggle.disabled = active.plan.pending || active.running
-      toggle.addEventListener('click', () => post('setPlan', { active: !active.plan.active }))
-      mode.append(toggle)
-      fragment.append(mode)
-    }
-    for (const todo of active?.todos || []) {
-      const row = node('div', `todo-row ${todo.status}`)
-      row.append(node('span', 'todo-check', todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '●' : '○'), node('span', '', todo.content))
-      fragment.append(row)
-    }
-  } else if (currentDetail === 'goal') {
-    const goal = active?.goal
-    if (!goal) {
-      const create = node('button', 'primary-button', t('createGoal'))
-      create.addEventListener('click', () => post('createGoal'))
-      fragment.append(create)
-    } else {
-      const card = node('section', 'goal-card')
-      card.append(node('strong', '', goal.objective))
-      card.append(node('span', 'goal-meta', t('goalRounds', {
-        phase: goalPhaseLabel(goal.phase),
-        current: goal.roundsStarted,
-        max: goal.maxGoalRounds,
-      })))
-      if (goal.blockedReason) card.append(node('p', '', goal.blockedReason))
-      const actions = node('div', 'goal-actions')
-      if (goal.phase === 'active') actions.append(goalButton(t('pause'), 'pause'))
-      if (goal.phase === 'paused' || goal.phase === 'blocked') actions.append(goalButton(t('resume'), 'resume'))
-      if (goal.phase !== 'complete') actions.append(goalButton(t('markComplete'), 'complete'))
-      actions.append(goalButton(t('clear'), 'clear', true))
-      card.append(actions)
-      fragment.append(card)
-    }
-  } else if (currentDetail === 'skills') {
-    for (const skill of active?.skills || []) {
-      const button = node('button', 'skill-row')
-      button.append(node('strong', '', `/${skill.name}`), node('span', '', skill.description))
-      button.addEventListener('click', () => {
-        elements.prompt.value = `/${skill.name} `
-        resizePrompt()
-        elements.prompt.focus()
-      })
-      fragment.append(button)
-    }
-  } else if (currentDetail === 'agents') {
-    for (const agent of active?.subagents || []) {
-      if (agent.kind === 'diagnostic') {
-        fragment.append(node('div', 'subagent-row diagnostic', `${agent.id.slice(0, 8)} · ${agent.reason}`))
-        continue
-      }
-      const button = node('button', 'subagent-row')
-      button.append(node('span', `job-status ${agent.activity}`), node('strong', '', agent.label || `Agent ${agent.id.slice(0, 8)}`))
-      button.append(node('small', '', `${agent.mode === 'continuable' ? t('continuableConversation') : t('oneShot')}${agent.hasChildren ? t('hasChildAgents') : ''}`))
-      button.addEventListener('click', () => {
-        composerConfiguration.reset()
-        post('selectSubagent', { sessionId: agent.id, mode: agent.mode })
-      })
-      fragment.append(button)
-    }
-  } else if (currentDetail === 'jobs') {
-    for (const job of active?.jobs || []) {
-      const row = node('div', 'job-row')
-      row.append(node('span', `job-status ${job.status}`), node('div', '', job.label))
-      if (job.detail) row.append(node('small', '', job.detail))
-      fragment.append(row)
-    }
-  }
-  if (!fragment.childNodes.length) fragment.append(node('p', 'muted-empty', t('noContent')))
-  elements.detailContent.replaceChildren(fragment)
-}
-
-function goalButton(label, action, secondary = false) {
-  const button = node('button', secondary ? 'secondary-button' : 'primary-button', label)
-  button.addEventListener('click', () => post('mutateGoal', { action }))
-  return button
-}
-
-function goalPhaseLabel(phase) {
-  if (phase === 'active') return t('goalPhaseActive')
-  if (phase === 'paused') return t('goalPhasePaused')
-  if (phase === 'blocked') return t('goalPhaseBlocked')
-  return t('goalPhaseComplete')
-}
-
 function renderComposer(active) {
   const ready = payload.state.phase === 'connected' || payload.state.phase === 'reconnecting'
   elements.prompt.disabled = !ready
@@ -626,6 +651,8 @@ function renderComposer(active) {
   elements.send.textContent = active?.running ? '■' : '↑'
   elements.send.title = active?.running ? t('stopGenerating') : t('sendTitle')
   contextMeter.update(active?.contextPressure)
+  renderPlanToggle(active)
+  renderComposerBackdrop()
   elements.composerStatus.textContent = composerStatusText(active, {
     oneShotReadOnly: t('oneShotReadOnly'),
     runningQueue: t('runningQueue'),
@@ -633,23 +660,34 @@ function renderComposer(active) {
   })
 }
 
+function renderPlanToggle(active) {
+  const plan = active?.plan
+  elements.planToggle.classList.toggle('hidden', !plan)
+  if (!plan) return
+  elements.planToggle.dataset.state = plan.pending ? 'pending' : plan.active ? 'on' : 'off'
+  elements.planToggle.setAttribute('aria-pressed', String(plan.active))
+  elements.planToggle.disabled = plan.pending
+  elements.planToggle.title = plan.pending ? t('planChanging') : plan.active ? t('planEnabled') : t('planDisabled')
+}
+
 function updateCommandMenu() {
   const active = payload?.state?.active
-  const token = currentCommandToken(elements.prompt)
+  const token = currentTrigger(elements.prompt)
   if (token === undefined || !active) {
     closeCommandMenu()
     return
   }
-  if (!menuState || menuState.query !== token) menuState = { query: token, index: 0, items: [] }
-  const commands = active.commands || []
-  if (menuLoadedSession !== active.id && commands.every((command) => command.kind === 'extension')) {
+  if (!menuState || menuState.query !== token.query || menuState.trigger !== token.trigger) {
+    menuState = { trigger: token.trigger, query: token.query, index: 0, items: [] }
+  }
+  if (token.trigger === '/' && menuLoadedSession !== active.id && (active.commands || []).length === 0) {
     menuLoadedSession = active.id
     post('loadCommands')
   }
-  const query = token.toLowerCase()
-  const items = commands.filter((command) => {
-    const name = command.name.toLowerCase()
-    return query === '' || name.includes(query) || command.description.toLowerCase().includes(query)
+  const query = token.query.toLowerCase()
+  const items = menuItems(active, token.trigger).filter((item) => {
+    const name = item.name.toLowerCase()
+    return query === '' || name.includes(query) || (item.description || '').toLowerCase().includes(query)
   })
   items.sort((left, right) => rank(left.name, query) - rank(right.name, query))
   menuState.items = items
@@ -657,10 +695,32 @@ function updateCommandMenu() {
   renderCommandMenu()
 }
 
-function currentCommandToken(textarea) {
+function currentTrigger(textarea) {
   const before = textarea.value.slice(0, textarea.selectionStart)
-  const match = /(?:^|\s)\/([a-zA-Z0-9_-]*)$/.exec(before)
-  return match ? match[1] : undefined
+  const match = /(?:^|\s)([/@])([a-zA-Z0-9_-]*)$/.exec(before)
+  return match ? { trigger: match[1], query: match[2] } : undefined
+}
+
+/** Candidate entries for the `/` command menu or the `@` mention menu. */
+function menuItems(active, trigger) {
+  const items = []
+  for (const command of active.commands || []) {
+    items.push({ name: command.name, description: command.description, hint: command.input?.hint })
+  }
+  if (trigger === '@') {
+    for (const agent of active.subagents || []) {
+      if (agent.kind === 'diagnostic') continue
+      items.push({
+        name: agent.label || `${t('agent')} ${agent.id.slice(0, 8)}`,
+        description: agent.mode === 'continuable' ? t('continuableSubagent') : t('oneShot'),
+      })
+    }
+    return items
+  }
+  for (const skill of active.skills || []) {
+    items.push({ name: skill.name, description: skill.description })
+  }
+  return items
 }
 
 function rank(name, query) {
@@ -670,42 +730,39 @@ function rank(name, query) {
 
 function renderCommandMenu() {
   const menu = elements.commandMenu
-  if (!menuState || menuState.items.length === 0) {
+  const open = !!menuState && menuState.items.length > 0
+  elements.composerAdd.setAttribute('aria-expanded', String(open))
+  if (!open) {
     menu.classList.add('hidden')
     menu.replaceChildren()
     return
   }
+  const trigger = menuState.trigger
   const fragment = document.createDocumentFragment()
-  menuState.items.forEach((command, index) => {
+  menuState.items.forEach((item, index) => {
     const button = node('button', `command-menu-item${index === menuState.index ? ' active' : ''}`)
     button.type = 'button'
     button.setAttribute('role', 'option')
     button.setAttribute('aria-selected', String(index === menuState.index))
-    const name = node('span', 'command-name', `/${command.name}`)
-    const desc = node('span', 'command-desc', command.description)
-    button.append(name, desc)
-    if (command.input?.hint) button.append(node('span', 'command-hint', command.input.hint))
+    button.append(node('span', 'command-name', `${trigger}${item.name}`))
+    if (item.description) button.append(node('span', 'command-desc', item.description))
+    if (item.hint) button.append(node('span', 'command-hint', item.hint))
     button.addEventListener('mousedown', (event) => event.preventDefault())
-    button.addEventListener('click', () => chooseCommand(command))
+    button.addEventListener('click', () => chooseCommand(item))
     fragment.append(button)
   })
   menu.replaceChildren(fragment)
   menu.classList.remove('hidden')
 }
 
-function chooseCommand(command) {
+function chooseCommand(item) {
+  const trigger = menuState?.trigger || '/'
   closeCommandMenu()
-  if (command.kind === 'extension') {
-    if (command.name === 'model') composerConfiguration.open('model')
-    else if (command.name === 'reasoning') composerConfiguration.open('reasoning')
-    else if (command.name === 'preset') composerConfiguration.open('preset')
-    return
-  }
-  insertCommand(command.name)
+  insertReference(trigger, item.name)
 }
 
-function insertCommand(name) {
-  elements.prompt.value = `/${name} `
+function insertReference(trigger, name) {
+  elements.prompt.value = `${trigger}${name} `
   resizePrompt()
   elements.prompt.focus()
   elements.prompt.setSelectionRange(elements.prompt.value.length, elements.prompt.value.length)
@@ -713,13 +770,24 @@ function insertCommand(name) {
 
 function closeCommandMenu() {
   menuState = null
+  elements.composerAdd.setAttribute('aria-expanded', 'false')
   elements.commandMenu.classList.add('hidden')
   elements.commandMenu.replaceChildren()
 }
 
+/** Opens the `/` command menu from the `+` button by trailing a slash. */
+function openComposerMenu() {
+  const draft = elements.prompt.value
+  const separator = draft === '' || /\s$/.test(draft) ? '' : ' '
+  elements.prompt.value = `${draft}${separator}/`
+  elements.prompt.focus()
+  elements.prompt.setSelectionRange(elements.prompt.value.length, elements.prompt.value.length)
+  resizePrompt()
+  updateCommandMenu()
+}
+
 function sendPrompt() {
   closeCommandMenu()
-  fileMention.close()
   composerConfiguration.close()
   const text = elements.prompt.value.trim()
   if (!text) return
@@ -728,27 +796,193 @@ function sendPrompt() {
   post('sendPrompt', {
     text,
     mode: 'queue',
-    context: editorContext.input(),
     ...(configuration === undefined ? {} : { configuration }),
   })
-  editorContext.markSubmitted()
   elements.prompt.value = ''
   resizePrompt()
 }
 
 function resizePrompt() {
-  elements.prompt.style.height = 'auto'
-  elements.prompt.style.height = `${Math.min(elements.prompt.scrollHeight, 180)}px`
+  // The mirror is the height ruler: `draft + '\n'` so the last line always has
+  // height. The textarea and backdrop are absolute overlays on the `.grow` cell.
+  elements.composerMirror.textContent = `${elements.prompt.value}\n`
+  revealCaret()
   if (payload) renderComposer(payload.state.active)
 }
 
-function toggleHistory(open) {
-  if (open) pluginCenter.close()
-  elements.historyPanel.classList.toggle('hidden', !open)
-  if (open) {
-    renderSessions()
-    elements.historySearch.focus()
+/** Keeps the caret in view once the composer text scrolls (mirror = measurement surrogate). */
+function revealCaret() {
+  const scroll = elements.composerScroll
+  const mirror = elements.composerMirror
+  if (!scroll || !mirror) return
+  const caret = elements.prompt.selectionStart
+  const textNode = mirror.firstChild
+  if (textNode === null) return
+  const range = document.createRange()
+  range.setStart(textNode, Math.min(caret, textNode.textContent.length))
+  range.collapse(true)
+  const rect = range.getBoundingClientRect()
+  const viewport = scroll.getBoundingClientRect()
+  if (rect.bottom > viewport.bottom - 4) scroll.scrollTop += rect.bottom - (viewport.bottom - 4)
+  else if (rect.top < viewport.top + 4) scroll.scrollTop -= (viewport.top + 4) - rect.top
+}
+
+/**
+ * Paints `.textRef` marks over the draft glyphs in the backdrop layer. Both
+ * `/command` and `@mention` are plain-text references (no width drift), so the
+ * backdrop and the transparent textarea stay glyph-aligned by construction.
+ */
+function renderComposerBackdrop() {
+  if (!elements.composerBackdrop) return
+  const draft = elements.prompt.value
+  const refs = scanTextRefs(draft, composerLexicons(payload?.state?.active))
+  const fragment = document.createDocumentFragment()
+  let cursor = 0
+  for (const ref of refs) {
+    if (ref.start > cursor) fragment.append(document.createTextNode(draft.slice(cursor, ref.start)))
+    fragment.append(node('mark', 'text-ref', draft.slice(ref.start, ref.end)))
+    cursor = ref.end
   }
+  if (cursor < draft.length) fragment.append(document.createTextNode(draft.slice(cursor)))
+  elements.composerBackdrop.replaceChildren(fragment)
+}
+
+/** Lexicon for text-ref scanning: `/` = commands + skills, `@` = subagents + commands. */
+function composerLexicons(active) {
+  const slash = []
+  const at = []
+  for (const command of active?.commands || []) {
+    slash.push(command.name)
+    at.push(command.name)
+  }
+  for (const skill of active?.skills || []) slash.push(skill.name)
+  for (const agent of active?.subagents || []) {
+    if (agent.kind === 'diagnostic') continue
+    at.push(agent.label || `${t('agent')} ${agent.id.slice(0, 8)}`)
+  }
+  return new Map([['/', slash], ['@', at]])
+}
+
+function toggleSidebar() {
+  const narrow = window.innerWidth < SIDEBAR_AUTO_COLLAPSE
+  if (narrow) {
+    layout.narrowExpanded = isSidebarCollapsed()
+  } else {
+    layout.sidebar = layout.sidebar === 0 ? SIDEBAR_DEFAULT : 0
+  }
+  applyLayout()
+  if (!isSidebarCollapsed()) renderSessions()
+}
+
+function applyLayout() {
+  const viewport = window.innerWidth
+  const narrow = viewport < SIDEBAR_AUTO_COLLAPSE
+  const collapsed = sidebarCollapsed(narrow, layout.narrowExpanded, layout.sidebar)
+  const effective = collapsed ? 0 : layout.sidebar
+  const columns = computeColumns(viewport, effective, layout.details)
+  elements.bodyColumns.style.gridTemplateColumns = `${columns.sidebar}px minmax(0,1fr) ${columns.details}px`
+  elements.historyPanel.setAttribute('data-sidebar-collapsed', String(collapsed))
+  elements.detailsPanel.setAttribute('data-details-collapsed', String(columns.details === 0))
+  elements.historyToggle.setAttribute('aria-expanded', String(!collapsed))
+}
+
+function isSidebarCollapsed() {
+  return sidebarCollapsed(window.innerWidth < SIDEBAR_AUTO_COLLAPSE, layout.narrowExpanded, layout.sidebar)
+}
+
+function bindDragHandle(handle) {
+  const side = handle.dataset.side
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    dragState = { side, origin: event.clientX, base: dragBase(side) }
+    elements.bodyColumns.setAttribute('data-dragging', '')
+    handle.setPointerCapture(event.pointerId)
+  })
+  handle.addEventListener('pointermove', (event) => {
+    if (!dragState || dragState.side !== side) return
+    if (!handle.hasPointerCapture(event.pointerId)) return
+    dragState.dx = event.clientX - dragState.origin
+    if (dragFrame === 0) dragFrame = requestAnimationFrame(flushDrag)
+  })
+  handle.addEventListener('pointerup', endDrag)
+  handle.addEventListener('pointercancel', endDrag)
+}
+
+function dragBase(side) {
+  if (side === 'sidebar') return layout.sidebar === 0 ? SIDEBAR_DEFAULT : layout.sidebar
+  return layout.details === 0 ? DETAILS_DEFAULT : layout.details
+}
+
+function flushDrag() {
+  dragFrame = 0
+  if (!dragState) return
+  if (dragState.side === 'sidebar') {
+    layout.sidebar = clampWidth(dragState.base + dragState.dx, SIDEBAR_MIN, SIDEBAR_MAX)
+  } else {
+    layout.details = clampWidth(dragState.base - dragState.dx, DETAILS_MIN, DETAILS_MAX)
+  }
+  applyLayout()
+}
+
+function endDrag() {
+  if (dragFrame !== 0) {
+    cancelAnimationFrame(dragFrame)
+    dragFrame = 0
+  }
+  dragState = null
+  elements.bodyColumns.removeAttribute('data-dragging')
+}
+
+function clampWidth(value, min, max) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function openDetails() {
+  layout.details = DETAILS_DEFAULT
+  applyLayout()
+}
+
+function closeDetails() {
+  layout.details = 0
+  selectedCallId = null
+  applyLayout()
+  renderDetailsPanel()
+}
+
+function inspectTool(callId) {
+  selectedCallId = callId
+  openDetails()
+  renderDetailsPanel()
+}
+
+function renderDetailsPanel() {
+  const active = payload?.state?.active
+  const block = selectedCallId === null ? null : findToolCallById(active, selectedCallId)
+  elements.detailsTitle.textContent = detailsPanel.title(block)
+  elements.detailsBody.replaceChildren(detailsPanel.body(block))
+  for (const card of elements.messages.querySelectorAll('.tool-card')) {
+    card.classList.toggle('selected', card.dataset.callId === selectedCallId)
+  }
+}
+
+/** Recursively locates a running or settled call by id, mirroring the official `findToolCall`. */
+function findToolCallById(active, callId) {
+  const candidates = [...(active?.runningCalls || []), ...(active?.nodes || []).filter((entry) => entry.kind === 'tool-result')]
+  for (const block of candidates) {
+    const found = findInBlock(block, callId)
+    if (found) return found
+  }
+  return null
+}
+
+function findInBlock(block, callId) {
+  if (block.callId === callId) return block
+  for (const sub of block.subCalls || []) {
+    const found = findInBlock(sub, callId)
+    if (found) return found
+  }
+  return null
 }
 
 function post(type, data = {}) {
@@ -762,23 +996,21 @@ function node(tag, className = '', text = '') {
   return element
 }
 
-function messageSignature(item) {
-  return JSON.stringify(item)
-}
-
 function setMessageMetadata(element, id, signature) {
   element.dataset.messageId = id
   messageSignatures.set(element, signature)
 }
 
-/** Mutates only text inside the active assistant card for smooth token flow. */
-function patchStreamingMessage(element, item) {
-  if (item.kind !== 'message' || element.tagName !== 'ARTICLE') return false
+/** Mutates an assistant card in place: streamed text or a finalized step. */
+function patchRow(element, row) {
+  if (row.node?.kind !== 'assistant' && !row.partial) return false
+  if (element.tagName !== 'ARTICLE') return false
   const body = element.querySelector('.message-body')
   if (!body) return false
-  if (!streamingMessage.patch(body, item)) return false
-  workDuration.update(element, item.workDuration)
-  return true
+  const card = row.partial
+    ? { running: true, blocks: row.partial.blocks }
+    : { running: false, blocks: row.node.blocks }
+  return streamingMessage.patch(body, card)
 }
 
 function captureDisclosures(root) {
@@ -838,5 +1070,11 @@ function legacyCopy(text) {
   }
   area.remove()
 }
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeSessionMenu()
+})
+
+applyLayout()
 
 vscode.postMessage({ type: 'ready' })

@@ -25,15 +25,15 @@ export function composerConfigurationInput(
   const active = payload.state.active
   if (active === undefined) return undefined
   const fallbackReasoning = payload.fallbackOptions.reasoning.map(copyOption)
-  const models: readonly ModelConfigurationOption[] = active.models.length > 0
-    ? active.models.map((model) => ({
-      provider: model.provider,
+  const models: readonly ModelConfigurationOption[] = active.models !== undefined && active.models.groups.length > 0
+    ? active.models.groups.flatMap((group) => group.models.map((model) => ({
+      provider: group.id,
       id: model.id,
       label: model.name,
       ...(model.description === undefined ? {} : { description: model.description }),
       // Keep the live catalog authoritative, but use the localized fallback
       // copy for known ids so Off / High / Maximum follow VS Code's language.
-      reasoning: model.reasoning.map((effort) => {
+      reasoning: (model.reasoning?.efforts ?? []).map((effort) => {
         const fallback = fallbackReasoning.find((option) => option.id === effort.id)
         const description = effort.description ?? fallback?.description
         return {
@@ -42,7 +42,7 @@ export function composerConfigurationInput(
           ...(description === undefined ? {} : { description }),
         }
       }),
-    }))
+    })))
     : payload.fallbackOptions.models.map((model) => ({
       provider: payload.configuration.provider,
       id: model.id,
@@ -63,9 +63,9 @@ export function composerConfigurationInput(
     editable: active.subagentMode === undefined,
     blank: active.blank,
     current: {
-      provider: active.model?.provider ?? payload.configuration.provider,
-      model: active.model?.model ?? payload.configuration.model,
-      reasoningEffort: active.model?.reasoningEffort ?? payload.configuration.reasoningEffort,
+      provider: active.models?.current.provider ?? payload.configuration.provider,
+      model: active.models?.current.model ?? payload.configuration.model,
+      reasoningEffort: active.models?.current.reasoningEffort ?? payload.configuration.reasoningEffort,
       agentPreset: active.agentPreset ?? payload.configuration.agentPreset,
     },
     models,

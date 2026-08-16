@@ -10,17 +10,20 @@ import {
 describe('composer configuration adapter', () => {
   it('maps the live Harness catalogs and excludes broken presets', () => {
     const result = composerConfigurationInput(payload({
-      models: [{
-        provider: 'deepseek-official',
-        id: 'deepseek-v4-pro',
-        name: 'DeepSeek V4 Pro',
-        description: 'Complex work',
-        reasoning: [{ id: 'max', name: 'Max from host', description: 'Deep reasoning' }],
-      }],
-      model: {
-        provider: 'deepseek-official',
-        model: 'deepseek-v4-pro',
-        reasoningEffort: 'max',
+      models: {
+        current: { provider: 'deepseek-official', model: 'deepseek-v4-pro', reasoningEffort: 'max' },
+        routable: true,
+        groups: [{
+          id: 'deepseek-official',
+          name: 'DeepSeek',
+          models: [{
+            id: 'deepseek-v4-pro',
+            name: 'DeepSeek V4 Pro',
+            description: 'Complex work',
+            reasoning: { efforts: [{ id: 'max', name: 'Max from host', description: 'Deep reasoning' }] },
+          }],
+        }],
+        failures: [],
       },
     }, {
       presets: [
@@ -51,7 +54,7 @@ describe('composer configuration adapter', () => {
   })
 
   it('uses localized fallback catalogs while the live catalogs are loading', () => {
-    const result = composerConfigurationInput(payload({ models: [] }, { presets: [] }))
+    const result = composerConfigurationInput(payload({}, { presets: [] }))
 
     expect(result?.models[0]).toEqual({
       provider: 'deepseek-official',
@@ -77,6 +80,7 @@ describe('composer configuration adapter', () => {
       phase: withoutActive.state.phase,
       hasApiKey: withoutActive.state.hasApiKey,
       sessions: withoutActive.state.sessions,
+      archivedSessions: [],
       presets: withoutActive.state.presets,
     }
 
@@ -99,7 +103,6 @@ function payload(
     agentPreset: 'standard',
     baseUrl: undefined,
     permissionMode: 'workspace-write',
-    autoAttachSelection: true,
   }
   const active: ActiveSessionView = {
     id: 'session-1',
@@ -108,14 +111,16 @@ function payload(
     blank: false,
     agentPreset: 'standard',
     hasMore: false,
-    models: [],
-    messages: [],
+    status: 'done',
+    nodes: [],
+    partial: null,
+    runningCalls: [],
+    turnTails: [],
     todos: [],
     skills: [],
     jobs: [],
     approvals: [],
     questions: [],
-    subagentCount: 0,
     subagents: [],
     ...activeOverrides,
   }
@@ -125,6 +130,7 @@ function payload(
       phase: 'connected',
       hasApiKey: true,
       sessions: [],
+      archivedSessions: [],
       active,
       presets: [],
       ...stateOverrides,

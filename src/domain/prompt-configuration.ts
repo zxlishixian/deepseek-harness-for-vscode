@@ -8,7 +8,7 @@ export interface PromptConfiguration {
 
 export type AgentPresetTransition = 'keep-session' | 'select-blank-session' | 'create-session'
 
-/** Encodes the upstream rule that an Agent Preset is immutable after the first prompt. */
+/** Encodes the official Harness rule that an Agent Preset is immutable after the first prompt. */
 export function agentPresetTransition(
   blank: boolean,
   currentPreset: string,
