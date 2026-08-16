@@ -67,10 +67,7 @@ export function activate(context: vscode.ExtensionContext): void {
     editorSelection,
     workspaceFiles,
     provider,
-    vscode.window.registerWebviewViewProvider(WorkbenchViewProvider.viewType, provider, {
-      webviewOptions: { retainContextWhenHidden: true },
-    }),
-    vscode.commands.registerCommand('deepseekHarness.openChat', focusWorkbench),
+    vscode.commands.registerCommand('deepseekHarness.openChat', () => { provider.createOrShowPanel() }),
     vscode.commands.registerCommand('deepseekHarness.reloadRuntime', () => provider.refresh()),
     vscode.commands.registerCommand('deepseekHarness.setApiKey', setApiKey),
     vscode.commands.registerCommand('deepseekHarness.clearApiKey', async () => {
@@ -91,8 +88,4 @@ export function activate(context: vscode.ExtensionContext): void {
 export async function deactivate(): Promise<void> {
   await activeRuntime?.stop()
   activeRuntime = undefined
-}
-
-async function focusWorkbench(): Promise<void> {
-  await vscode.commands.executeCommand(`${WorkbenchViewProvider.viewType}.focus`)
 }

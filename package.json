@@ -44,7 +44,7 @@
       {
         "command": "deepseekHarness.openChat",
         "title": "%command.openChat%",
-        "icon": "$(comment-discussion)"
+        "icon": "media/deepseek-harness.svg"
       },
       {
         "command": "deepseekHarness.reloadRuntime",
@@ -64,35 +64,12 @@
         "title": "%command.showLogs%"
       }
     ],
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "deepseekHarness",
-          "title": "DeepSeek Harness for Visual Studio Code",
-          "icon": "media/deepseek-harness.svg"
-        }
-      ]
-    },
-    "views": {
-      "deepseekHarness": [
-        {
-          "id": "deepseekHarness.chatView",
-          "name": "%view.chat%",
-          "type": "webview"
-        }
-      ]
-    },
     "menus": {
-      "view/title": [
+      "editor/title": [
         {
-          "command": "deepseekHarness.reloadRuntime",
-          "when": "view == deepseekHarness.chatView",
-          "group": "navigation@1"
-        },
-        {
-          "command": "deepseekHarness.showLogs",
-          "when": "view == deepseekHarness.chatView",
-          "group": "navigation@2"
+          "command": "deepseekHarness.openChat",
+          "group": "navigation",
+          "icon": "media/deepseek-harness.svg"
         }
       ]
     },
