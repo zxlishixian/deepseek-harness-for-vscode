@@ -2,14 +2,15 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Extension",
+      "name": "运行 DeepSeek Harness 扩展",
       "type": "extensionHost",
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
       "outFiles": [
-        "${workspaceFolder}/out/**/*.js"
+        "${workspaceFolder}/dist/**/*.js",
+        "${workspaceFolder}/dist/**/*.cjs"
       ],
       "preLaunchTask": "npm: compile"
     }

@@ -1,10 +1,42 @@
+.github/**
 .vscode/**
-.vscode-test/**
 src/**
-/node_modules/**
+test/**
+coverage/**
+dist/**/*.map
 .gitignore
-.git/**
-**/tsconfig.json
-**/*.ts
-**/*.map
-*.vsix
+eslint.config.mjs
+esbuild.mjs
+tsconfig.json
+vitest.config.ts
+package-lock.json
+*.zip
+media/chat.js
+node_modules/node/node_modules/node-bin-setup/**
+node_modules/node/node_modules/node-bin-*/bin/**
+node_modules/node/node_modules/node-bin-*/include/**
+node_modules/node/node_modules/node-bin-*/share/**
+node_modules/node/node_modules/node-bin-*/CHANGELOG.md
+node_modules/node/node_modules/node-bin-*/README.md
+node_modules/node/node_modules/node-bin-*/package.json
+# The nested platform package (node-win-x64 / node-darwin-* / …) duplicates the
+# binary already present at node_modules/node/bin/node(.exe) used by the
+# runtime resolver. Excluding it halves the packaged Node footprint on every
+# platform; the resolver never touches these nested copies.
+node_modules/node/node_modules/node-*/**
+
+node_modules/node/installArchSpecificPackage.js
+node_modules/node/README.md
+node_modules/node/node_modules/.package-lock.json
+# Debug symbol files are never loaded at runtime; node-pty ships per-platform
+# .pdb files (several MB each) that only bloat the VSIX.
+**/*.pdb
+node_modules/**/*.d.ts
+node_modules/**/*.d.mts
+node_modules/**/*.d.cts
+node_modules/**/*.map
+node_modules/**/README*
+node_modules/**/readme*
+node_modules/**/CHANGELOG*
+node_modules/**/test/**
+node_modules/**/tests/**

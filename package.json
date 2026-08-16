@@ -1,111 +1,225 @@
 {
-  "name": "dsh-vscode",
-  "displayName": "DeepSeek Harness",
-  "description": "Run the DeepSeek Harness coding agent inside a VS Code panel.",
-  "version": "0.1.0",
-  "type": "commonjs",
+  "name": "deepseek-harness-for-vscode",
+  "displayName": "DeepSeek Harness for Visual Studio Code",
+  "description": "%extension.description%",
+  "version": "0.4.4",
+  "type": "module",
   "publisher": "zxlishixian",
-  "icon": "resources/whale.png",
   "license": "MIT",
+  "icon": "media/deepseek-harness.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/zxlishixian/deepseek-harness-for-vscode.git"
   },
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.101.0"
   },
   "categories": [
+    "Machine Learning",
     "Other"
   ],
-  "activationEvents": [
-    "onStartupFinished"
+  "keywords": [
+    "deepseek",
+    "agent",
+    "coding assistant",
+    "deepseek harness"
   ],
-  "main": "./out/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./dist/extension.cjs",
+  "l10n": "./l10n",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "compile": "npm run check-types && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package": "npm run check-types && npm run test && node esbuild.mjs --production && node scripts/package-vsix.mjs",
+    "vscode:prepublish": "npm run check-types && node esbuild.mjs --production"
+  },
   "contributes": {
     "commands": [
       {
-        "command": "dsh.open",
-        "title": "Open DeepSeek Harness",
-        "category": "DeepSeek Harness",
-        "icon": {
-          "light": "resources/whale-light.svg",
-          "dark": "resources/whale-dark.svg"
-        }
+        "command": "deepseekHarness.openChat",
+        "title": "%command.openChat%",
+        "icon": "$(comment-discussion)"
       },
       {
-        "command": "dsh.openInBackground",
-        "title": "Open DeepSeek Harness in Background",
-        "category": "DeepSeek Harness"
+        "command": "deepseekHarness.reloadRuntime",
+        "title": "%command.reloadRuntime%",
+        "icon": "$(refresh)"
       },
       {
-        "command": "dsh.openExternal",
-        "title": "Open DeepSeek Harness in Browser",
-        "category": "DeepSeek Harness"
+        "command": "deepseekHarness.setApiKey",
+        "title": "%command.setApiKey%"
       },
       {
-        "command": "dsh.stop",
-        "title": "Stop DeepSeek Harness",
-        "category": "DeepSeek Harness"
+        "command": "deepseekHarness.clearApiKey",
+        "title": "%command.clearApiKey%"
+      },
+      {
+        "command": "deepseekHarness.showLogs",
+        "title": "%command.showLogs%"
       }
     ],
-    "menus": {
-      "editor/title": [
+    "viewsContainers": {
+      "activitybar": [
         {
-          "command": "dsh.open",
-          "group": "navigation",
-          "icon": {
-            "light": "resources/whale-light.svg",
-            "dark": "resources/whale-dark.svg"
-          }
+          "id": "deepseekHarness",
+          "title": "DeepSeek Harness for Visual Studio Code",
+          "icon": "media/deepseek-harness.svg"
         }
       ]
     },
+    "views": {
+      "deepseekHarness": [
+        {
+          "id": "deepseekHarness.chatView",
+          "name": "%view.chat%",
+          "type": "webview"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "deepseekHarness.reloadRuntime",
+          "when": "view == deepseekHarness.chatView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "deepseekHarness.showLogs",
+          "when": "view == deepseekHarness.chatView",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "deepseekHarness.openChat",
+        "key": "ctrl+alt+h",
+        "mac": "cmd+alt+h",
+        "when": "!inChat"
+      }
+    ],
     "configuration": {
-      "title": "DeepSeek Harness",
+      "title": "DeepSeek Harness for Visual Studio Code",
       "properties": {
-        "dsh.binary": {
+        "deepseekHarness.apiKey": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Path to the `dsh` executable, or to the built `apps/cli/lib/bin.js` (a `.js` value is run with `node`). Empty uses `npx --yes @deepseek-ai/dsh`."
+          "scope": "machine",
+          "markdownDescription": "%config.apiKey%"
         },
-        "dsh.home": {
+        "deepseekHarness.model": {
+          "type": "string",
+          "enum": [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro"
+          ],
+          "enumDescriptions": [
+            "%config.model.flash%",
+            "%config.model.pro%"
+          ],
+          "default": "deepseek-v4-flash",
+          "description": "%config.model%"
+        },
+        "deepseekHarness.reasoningEffort": {
+          "type": "string",
+          "enum": [
+            "off",
+            "high",
+            "max"
+          ],
+          "enumDescriptions": [
+            "%config.reasoning.off%",
+            "%config.reasoning.high%",
+            "%config.reasoning.max%"
+          ],
+          "default": "high",
+          "description": "%config.reasoning%"
+        },
+        "deepseekHarness.agentPreset": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "code",
+            "minimal",
+            "cordis"
+          ],
+          "enumDescriptions": [
+            "%config.preset.standard%",
+            "%config.preset.code%",
+            "%config.preset.minimal%",
+            "%config.preset.cordis%"
+          ],
+          "default": "standard",
+          "description": "%config.preset%"
+        },
+        "deepseekHarness.provider": {
+          "type": "string",
+          "default": "deepseek-official",
+          "description": "%config.provider%"
+        },
+        "deepseekHarness.baseUrl": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Value for `DSH_HOME`. Empty leaves the default (`~/.dsh`)."
+          "description": "%config.baseUrl%"
         },
-        "dsh.port": {
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "maximum": 65535,
-          "markdownDescription": "Loopback port for the embedded Web GUI. `0` lets the OS choose a free port."
+        "deepseekHarness.permissionMode": {
+          "type": "string",
+          "enum": [
+            "read-only",
+            "workspace-write",
+            "danger-full-access"
+          ],
+          "enumDescriptions": [
+            "%config.permission.readOnly%",
+            "%config.permission.workspaceWrite%",
+            "%config.permission.dangerFullAccess%"
+          ],
+          "default": "workspace-write",
+          "description": "%config.permission%"
         },
-        "dsh.args": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [],
-          "markdownDescription": "Extra arguments forwarded to `dsh web`."
-        },
-        "dsh.openOnStartup": {
+        "deepseekHarness.autoAttachSelection": {
           "type": "boolean",
-          "default": false,
-          "markdownDescription": "Start the harness when the window finishes loading."
+          "default": true,
+          "markdownDescription": "%config.autoAttachSelection%"
         }
       }
     }
   },
-  "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "vscode:prepublish": "tsc -p ./",
-    "package": "vsce package --no-dependencies"
-  },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@types/vscode": "^1.90.0",
-    "@vscode/vsce": "^3.9.2",
-    "typescript": "^5.5.0"
+    "@eslint/js": "^9.33.0",
+    "@types/node": "^24.0.0",
+    "@types/vscode": "1.101.0",
+    "@types/ws": "^8.18.1",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.25.9",
+    "eslint": "^9.33.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.39.1",
+    "vitest": "^4.0.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.0-rc.6",
+    "dompurify": "3.4.13",
+    "markdown-it": "15.0.0",
+    "node": "22.22.3",
+    "pnpm": "11.21.0",
+    "ws": "^8.21.3"
+  },
+  "allowScripts": {
+    "node@22.22.3": true,
+    "@deepseek-ai/dsh-subprocess-local@0.1.0-rc.6": true,
+    "esbuild@0.25.12": true,
+    "node-pty@1.1.0": true,
+    "koffi@3.1.4": true,
+    "keytar@7.9.0": true,
+    "protobufjs@7.6.5": true,
+    "@vscode/vsce-sign@2.0.9": true,
+    "@google/genai@1.52.0": true
   }
 }
