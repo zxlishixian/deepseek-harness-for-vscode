@@ -293,7 +293,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .reasoning-block[open] .reasoning-content { animation: reasoning-open 140ms ease-out; }
 .streaming-content { white-space: pre-wrap; overflow-wrap: anywhere; }
 .streaming-indicator { height: 15px; margin-top: 4px; display: inline-flex; align-items: flex-end; gap: 3px; }
-.streaming-indicator-dot { width: 5px; height: 5px; background: color-mix(in srgb, #c46cff 68%, var(--vscode-progressBar-background)); border-radius: 50%; animation: streaming-dot-hop 1.05s cubic-bezier(.4, 0, .2, 1) infinite; }
+.streaming-indicator-dot { width: 5px; height: 5px; background: color-mix(in srgb, #5686fe 68%, var(--vscode-progressBar-background)); border-radius: 50%; animation: streaming-dot-hop 1.05s cubic-bezier(.4, 0, .2, 1) infinite; }
 .streaming-indicator-dot:nth-child(2) { animation-delay: 140ms; }
 .streaming-indicator-dot:nth-child(3) { animation-delay: 280ms; }
 @keyframes reasoning-pulse { 50% { opacity: .38; transform: scale(.82); } }
@@ -425,7 +425,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .configuration-option.active .configuration-option-copy small { color: inherit; opacity: .78; }
 .configuration-option-check { text-align: center; font-size: 13px; }
 .effort-control {
-  --effort-color: #9b7cff;
+  --effort-color: #5686fe;
   --effort-progress: 50%;
   padding: 9px 11px 8px;
   display: grid;
@@ -435,7 +435,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
   transition: background-color 160ms ease;
 }
 .effort-control[data-effort='off'] { --effort-color: #8b8b93; }
-.effort-control[data-effort='high'] { --effort-color: #9b7cff; }
+.effort-control[data-effort='high'] { --effort-color: #5686fe; }
 .effort-control[data-effort='max'] { --effort-color: #e8784f; }
 .effort-main { min-height: 50px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .effort-heading { min-width: 82px; padding-top: 7px; display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
@@ -478,7 +478,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
   border: 1px solid color-mix(in srgb, var(--vscode-widget-border) 80%, transparent);
   border-radius: 10px;
 }
-.editor-context-chip.selection-context-chip { border-color: color-mix(in srgb, #9b7cff 45%, var(--vscode-widget-border)); }
+.editor-context-chip.selection-context-chip { border-color: color-mix(in srgb, #5686fe 45%, var(--vscode-widget-border)); }
 .editor-context-open {
   min-width: 0;
   padding: 6px 7px;
@@ -492,7 +492,7 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 }
 .editor-context-open:not(:disabled):hover { background: var(--vscode-toolbar-hoverBackground); }
 .editor-context-open:disabled { cursor: default; }
-.editor-context-icon { width: 19px; flex: none; color: #9b7cff; text-align: center; font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; font-weight: 700; }
+.editor-context-icon { width: 19px; flex: none; color: #5686fe; text-align: center; font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; font-weight: 700; }
 .file-context-chip .editor-context-icon { color: var(--vscode-charts-blue, #4d8cff); }
 .editor-context-copy { min-width: 0; display: grid; gap: 1px; line-height: 1.15; }
 .editor-context-copy strong, .editor-context-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -557,8 +557,8 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .context-meter-value { min-width: 22px; white-space: nowrap; }
 .configuration-toggle { width: 182px; max-width: 182px; height: 32px; padding: 4px 7px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 5px; align-items: center; color: var(--vscode-foreground); background: color-mix(in srgb, var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background)) 70%, transparent); border: 1px solid var(--vscode-widget-border); border-radius: 10px; }
 .configuration-toggle:hover, .configuration-toggle.active { background: var(--vscode-toolbar-hoverBackground); border-color: var(--vscode-focusBorder); }
-.configuration-toggle.pending { box-shadow: inset 0 0 0 1px color-mix(in srgb, #9b7cff 65%, transparent); }
-.configuration-toggle-icon { color: #9b7cff; font-size: 14px; }
+.configuration-toggle.pending { box-shadow: inset 0 0 0 1px color-mix(in srgb, #5686fe 65%, transparent); }
+.configuration-toggle-icon { color: #5686fe; font-size: 14px; }
 .configuration-toggle-copy { min-width: 0; display: grid; line-height: 1.05; text-align: left; }
 .configuration-toggle-copy strong, .configuration-toggle-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .configuration-toggle-copy strong { overflow: visible; text-overflow: clip; font-size: 11px; }
@@ -617,3 +617,58 @@ body.vscode-dark .empty-logo, body.vscode-high-contrast .empty-logo { filter: in
 .md-file-link:hover { color: var(--vscode-textLink-activeForeground); text-decoration-style: solid; }
 .md-file-link:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 #attach-selection { display: inline-flex; align-items: center; }
+
+/* ===== dsh 原版深色主题对齐 ===== */
+body.vscode-dark {
+  /* 背景层级：bluish-neutral */
+  --vscode-editor-background: #151517;
+  --vscode-sideBar-background: #1b1b1c;
+  --vscode-sideBar-border: rgba(255, 255, 255, 0.06);
+  --vscode-editorWidget-background: #353638;
+  --vscode-editorWidget-foreground: #f9fafb;
+  --vscode-input-background: #2c2c2e;
+  --vscode-input-foreground: #f9fafb;
+  --vscode-input-border: rgba(255, 255, 255, 0.08);
+  --vscode-dropdown-background: #2c2c2e;
+  --vscode-dropdown-foreground: #f9fafb;
+  --vscode-dropdown-border: rgba(255, 255, 255, 0.08);
+  /* 文字 */
+  --vscode-foreground: #f9fafb;
+  --vscode-descriptionForeground: #adb2b8;
+  --vscode-icon-foreground: #adb2b8;
+  --vscode-editor-foreground: #f9fafb;
+  /* 边框 */
+  --vscode-widget-border: rgba(255, 255, 255, 0.08);
+  --vscode-focusBorder: #5686fe;
+  /* DeepSeek 蓝按钮/链接/选中 */
+  --vscode-button-background: #5686fe;
+  --vscode-button-foreground: #ffffff;
+  --vscode-button-hoverBackground: #679efe;
+  --vscode-button-secondaryBackground: #2c2c2e;
+  --vscode-button-secondaryForeground: #f9fafb;
+  --vscode-button-secondaryHoverBackground: #353638;
+  --vscode-textLink-foreground: #679efe;
+  --vscode-textLink-activeForeground: #5686fe;
+  --vscode-list-hoverBackground: rgba(255, 255, 255, 0.08);
+  --vscode-list-activeSelectionBackground: rgba(86, 134, 254, 0.24);
+  --vscode-list-activeSelectionForeground: #f9fafb;
+  --vscode-toolbar-hoverBackground: rgba(255, 255, 255, 0.08);
+  /* 代码块 / 引用 */
+  --vscode-textCodeBlock-background: #1b1b1c;
+  --vscode-textPreformat-foreground: #f9fafb;
+  --vscode-textBlockQuote-background: rgba(255, 255, 255, 0.06);
+  --vscode-textBlockQuote-border: rgba(255, 255, 255, 0.16);
+  /* 徽章 / 进度 */
+  --vscode-badge-background: rgba(86, 134, 254, 0.2);
+  --vscode-badge-foreground: #679efe;
+  --vscode-progressBar-background: #5686fe;
+  /* 状态色 */
+  --vscode-charts-yellow: #f59e0b;
+  --vscode-testing-iconPassed: #22c55e;
+  --vscode-testing-iconFailed: #f25a5a;
+  --vscode-errorForeground: #f25a5a;
+  --vscode-inputValidation-warningBackground: rgba(245, 158, 11, 0.15);
+  --vscode-inputValidation-warningBorder: #f59e0b;
+  --vscode-inputValidation-warningForeground: #f59e0b;
+  --vscode-inputValidation-errorBorder: #f25a5a;
+}
