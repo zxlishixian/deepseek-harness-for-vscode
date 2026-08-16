@@ -5,12 +5,15 @@ test/**
 coverage/**
 dist/**/*.map
 .gitignore
+handoff.md
 eslint.config.mjs
 esbuild.mjs
 tsconfig.json
 vitest.config.ts
 package-lock.json
 *.zip
+*.vsix
+scripts/**
 media/chat.js
 node_modules/node/node_modules/node-bin-setup/**
 node_modules/node/node_modules/node-bin-*/bin/**
