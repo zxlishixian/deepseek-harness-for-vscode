@@ -1,0 +1,103 @@
+{
+  "name": "dsh-vscode",
+  "displayName": "DeepSeek Harness",
+  "description": "Run the DeepSeek Harness coding agent inside a VS Code panel.",
+  "version": "0.1.0",
+  "type": "commonjs",
+  "publisher": "zxlishixian",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zxlishixian/deepseek-harness-for-vscode.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "dsh.open",
+        "title": "Open DeepSeek Harness",
+        "category": "DeepSeek Harness",
+        "icon": "$(hubot)"
+      },
+      {
+        "command": "dsh.openInBackground",
+        "title": "Open DeepSeek Harness in Background",
+        "category": "DeepSeek Harness"
+      },
+      {
+        "command": "dsh.openExternal",
+        "title": "Open DeepSeek Harness in Browser",
+        "category": "DeepSeek Harness"
+      },
+      {
+        "command": "dsh.stop",
+        "title": "Stop DeepSeek Harness",
+        "category": "DeepSeek Harness"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "dsh.open",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DeepSeek Harness",
+      "properties": {
+        "dsh.binary": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the `dsh` executable, or to the built `apps/cli/lib/bin.js` (a `.js` value is run with `node`). Empty uses `npx --yes @deepseek-ai/dsh`."
+        },
+        "dsh.home": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Value for `DSH_HOME`. Empty leaves the default (`~/.dsh`)."
+        },
+        "dsh.port": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535,
+          "markdownDescription": "Loopback port for the embedded Web GUI. `0` lets the OS choose a free port."
+        },
+        "dsh.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Extra arguments forwarded to `dsh web`."
+        },
+        "dsh.openOnStartup": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Start the harness when the window finishes loading."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "tsc -p ./",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^5.5.0"
+  }
+}
