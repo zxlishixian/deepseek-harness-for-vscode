@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "type": "commonjs",
   "publisher": "zxlishixian",
+  "icon": "resources/whale.png",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -26,7 +27,10 @@
         "command": "dsh.open",
         "title": "Open DeepSeek Harness",
         "category": "DeepSeek Harness",
-        "icon": "$(hubot)"
+        "icon": {
+          "light": "resources/whale-light.svg",
+          "dark": "resources/whale-dark.svg"
+        }
       },
       {
         "command": "dsh.openInBackground",
@@ -48,7 +52,11 @@
       "editor/title": [
         {
           "command": "dsh.open",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": {
+            "light": "resources/whale-light.svg",
+            "dark": "resources/whale-dark.svg"
+          }
         }
       ]
     },

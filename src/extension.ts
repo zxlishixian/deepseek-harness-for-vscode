@@ -126,7 +126,7 @@ function panelHtml(url: string): string {
 <style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden}iframe{display:block;width:100%;height:100%;border:0}</style>
 </head>
 <body>
-<iframe src="${url}/" title="DeepSeek Harness"></iframe>
+<iframe src="${url}/" title="DeepSeek Harness" allow="clipboard-read; clipboard-write"></iframe>
 </body>
 </html>`
 }
