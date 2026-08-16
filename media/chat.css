@@ -8,8 +8,8 @@
 html, body { width: 100%; height: 100%; }
 body {
   margin: 0;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   color: var(--vscode-foreground);
   background: var(--vscode-sideBar-background);
@@ -87,15 +87,22 @@ body.vscode-dark .brand-logo, body.vscode-high-contrast .brand-logo { filter: in
 .primary-button:hover { background: var(--vscode-button-hoverBackground); }
 .secondary-button { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
 
+.body-columns {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
 .history-panel {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
+  width: 200px;
+  flex: none;
   padding: 9px;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 8px;
   background: var(--vscode-sideBar-background);
+  border-right: 1px solid var(--vscode-sideBar-border, var(--vscode-widget-border));
+  overflow: hidden;
 }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; }
 .search-input {
@@ -185,7 +192,7 @@ body.vscode-dark .brand-logo, body.vscode-high-contrast .brand-logo { filter: in
 .plugin-status { padding: 7px 8px; color: var(--vscode-foreground); background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-focusBorder); border-radius: 9px; white-space: pre-wrap; font-size: 9px; line-height: 1.4; }
 .plugin-status.error { color: var(--vscode-errorForeground); border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground)); }
 
-.workbench { min-height: 0; position: relative; overflow: hidden; }
+.workbench { flex: 1; min-width: 0; min-height: 0; position: relative; overflow: hidden; }
 .center-state {
   position: absolute;
   inset: 0;

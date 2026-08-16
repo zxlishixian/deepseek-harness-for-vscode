@@ -304,6 +304,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     <button id="set-api-key">${text('configure')}</button>
   </section>
 
+  <div class="body-columns">
   <aside id="history-panel" class="history-panel hidden" aria-label="${text('history')}">
     <div class="panel-heading"><strong>${text('history')}</strong><button id="history-close" class="icon-button">×</button></div>
     <input id="history-search" class="search-input" type="search" placeholder="${text('searchConversations')}">
@@ -435,6 +436,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       <p class="composer-hint">${text('composerHint')}</p>
     </section>
   </main>
+  </div>
   <script nonce="${nonce}">globalThis.__DEEPSEEK_HARNESS_LOCALIZATION__=${localization};</script>
   <script nonce="${nonce}" src="${script}"></script>
 </body>
