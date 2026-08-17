@@ -353,7 +353,7 @@ export class WorkbenchViewProvider implements vscode.Disposable {
           </div>
           <div class="composer-row">
             <div class="composer-tools">
-              <button id="composer-add" class="composer-add" type="button" title="${text('slashCommands')}" aria-label="${text('slashCommands')}" aria-haspopup="listbox" aria-expanded="false">+</button>
+              <button id="composer-add" class="composer-add" type="button" title="${text('slashCommands')}" aria-label="${text('slashCommands')}" aria-haspopup="listbox" aria-expanded="false">/</button>
               <div class="composer-modes">
                 <select id="permission" class="permission-select hidden" title="${text('permissionDescription')}"></select>
                 <button id="plan-toggle" class="plan-toggle hidden" type="button" title="${text('plan')}" aria-label="${text('plan')}">${text('plan')}</button>
