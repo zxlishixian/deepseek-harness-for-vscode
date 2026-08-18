@@ -534,11 +534,11 @@ function renderNode(node) {
   }
 }
 
-function renderUserMessage(node) {
+function renderUserMessage(message) {
   const article = node('article', 'message user')
   article.append(node('div', 'message-label', t('you')))
   const body = node('div', 'message-body')
-  renderContentBlocks(body, node.content)
+  renderContentBlocks(body, message.content)
   article.append(body)
   return article
 }
@@ -552,12 +552,12 @@ function renderAssistantCard(card, running) {
   return article
 }
 
-function renderContextNode(node) {
+function renderContextNode(contextNode) {
   const details = node('details', 'context-card')
   details.dataset.disclosureKey = 'context'
-  details.append(node('summary', '', node.provenance?.label || t('context')))
+  details.append(node('summary', '', contextNode.provenance?.label || t('context')))
   const body = node('div', 'context-body')
-  renderContentBlocks(body, node.content)
+  renderContentBlocks(body, contextNode.content)
   details.append(body)
   return details
 }
